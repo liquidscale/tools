@@ -1,9 +1,14 @@
 {
   "name": "@liquidscale/tools",
-  "version": "1.0.0",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liquidscale/tools.git"
+  },
   "bin": {
     "lqs": "./src/main.js"
   },
+  "license": "MIT",
   "dependencies": {
     "bluebird": "^3.7.2",
     "chokidar": "^3.5.1",
@@ -11,5 +16,8 @@
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "minimist": "^1.2.5"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
   }
 }
