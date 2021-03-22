@@ -30,10 +30,14 @@ export default function () {
     const runtime = runtimeFactory();
 
     console.log("deploy this as a deployment unit in our runtime. We keep watching files in order for our changes to be detected and automatically applied");
-    const bundle = await runtime.deploy(process.cwd(), { watch: true });
+    const bundle = runtime.deploymentBundle("filesystem")(process.cwd(), { watch: true });
     console.log("deployed bundle %s to runtime %s", bundle.id, runtime.id);
 
-    await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
-    console.log("Please set ws://localhost:%d as backend url in your client app", runtime.port);
+    runtime.subscribe("bundle:ready", async function (event) {
+      if (bundle.id === event.bundle.id) {
+        await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
+        console.log("development cluster %s is started in watch mode. Visit http://localhost:9000 to access your development dashboard", runtime.id);
+      }
+    });
   };
 }

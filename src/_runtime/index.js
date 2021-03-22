@@ -22,6 +22,7 @@
     SOFTWARE.
 */
 import express from "express";
+import expressWs from "express-ws";
 import Path from "path";
 import shortid from "shortid-36";
 import chokidar from "chokidar";
@@ -33,7 +34,6 @@ import installer from "./installer.js";
 import uninstaller from "./uninstaller.js";
 import worldScopeFactory from "./scopes/world.js";
 import registryFactory from "./registry.js";
-import expressWs from "express-ws";
 import vm from "vm";
 import sandbox from "./sandbox.js";
 import configSpi from "./config-spi.js";

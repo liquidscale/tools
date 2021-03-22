@@ -1,4 +1,5 @@
 import { Subject } from "rxjs";
+import { filter } from "rxjs/operators/index.js";
 import shortid from "shortid-36";
 import { loader } from "./loader.js";
 import compiler from "./compiler.js";
@@ -13,19 +14,20 @@ import scopeSpi from "./scope-spi.js";
 import actionSpi from "./action-spi.js";
 import registry from "./registry.js";
 import config from "./config.js";
-import oh from "object-hash";
-import lodash from "lodash";
 import health from "./health.js";
-
-const { map } = lodash;
+import gateways from "./gateways/index.js";
+import transports from "./transports/index.js";
+import stores from "./stores/index.js";
 
 export function runtimeFactory(options = {}) {
   // This is the internal api of the runtime instance.
   const events = new Subject();
+  const actions = new Subject();
 
   const spi = {
     id: shortid.generate(),
     events,
+    actions,
     config: config(events, options),
     new(code) {
       const script = new vm.Script(code);
@@ -71,62 +73,9 @@ export function runtimeFactory(options = {}) {
   installer(spi);
   uninstaller(spi);
 
-  const configHashes = {};
-
-  // connect all gateways
-  spi.config.changes.subscribe(cfg => {
-    if (cfg.gateways) {
-      const newHash = oh(cfg.gateways || {});
-      const prevHash = configHashes.gateways;
-      if (prevHash !== newHash) {
-        map(cfg.gateways, async (cfg, key) => {
-          const gateway = await spi.registry.findComponent({ stereotype: "gateway", key });
-          if (!gateway) {
-            console.log("creating gateway %s with config", key, cfg, gateway);
-          } else {
-            console.log("configuring existing gateway %s with config", key, cfg);
-          }
-        });
-        configHashes.gateways = newHash;
-      }
-    }
-  });
-
-  spi.config.changes.subscribe(cfg => {
-    if (cfg.transports) {
-      const newHash = oh(cfg.transports || {});
-      const prevHash = configHashes.transports;
-      if (prevHash !== newHash) {
-        map(cfg.transports, async (cfg, key) => {
-          const transport = await spi.registry.findComponent({ stereotype: "transport", key });
-          if (!transport) {
-            console.log("creating transport %s with config", key, cfg);
-          } else {
-            console.log("configuring existing transport %s with config", key, cfg);
-          }
-        });
-        configHashes.transports = newHash;
-      }
-    }
-  });
-
-  spi.config.changes.subscribe(cfg => {
-    if (cfg.stores) {
-      const newHash = oh(cfg.stores || {});
-      const prevHash = configHashes.stores;
-      if (prevHash !== newHash) {
-        map(cfg.stores, async (cfg, key) => {
-          const store = await spi.registry.findComponent({ stereotype: "store", key });
-          if (!store) {
-            console.log("creating store %s with config", key, cfg);
-          } else {
-            console.log("configuring existing store %s with config", key, cfg);
-          }
-        });
-        configHashes.stores = newHash;
-      }
-    }
-  });
+  gateways(spi);
+  transports(spi);
+  stores(spi);
 
   // create world scope
   // create organization scope
@@ -136,15 +85,29 @@ export function runtimeFactory(options = {}) {
 
   // Return the public api for our runtime
   return {
+    id: spi.id,
     events: events.asObservable(),
+    subscribe(key, subscriber) {
+      return events.pipe(filter(event => event.key === key)).subscribe(subscriber);
+    },
     start() {
+      console.log("starting runtime", spi.id);
+
       // connect all transports, gateways, stores and start runnable scopes
+      events.next({ key: "runtime:start" });
     },
     stop() {
+      console.log("stopping runtime", spi.id);
+
       // disconnect all transports, gateways, stores
+      events.next({ key: "runtime:stop" });
     },
-    deploy(root, options) {
-      return fileSystemBundle(spi)(root, options);
+    deploymentBundle(type) {
+      if (type === "filesystem") {
+        return fileSystemBundle(spi);
+      } else {
+        throw new Error("unsupported bundle type:" + type);
+      }
     },
   };
 }

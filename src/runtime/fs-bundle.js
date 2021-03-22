@@ -32,6 +32,8 @@ export function fileSystemBundle(runtime) {
           watcher.close();
           obs.complete();
         }
+
+        runtime.events.next({ key: "bundle:ready", bundle });
       });
 
     return bundle;

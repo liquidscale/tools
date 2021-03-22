@@ -9,13 +9,15 @@ addRxPlugin(memoryAdapter);
 enablePatches();
 enableMapSet();
 
-export default function (config, runtime) {
+export default function (key, config, runtime) {
   const DB = createRxDatabase({
-    name: "lqs_dev",
+    name: key,
     adapter: "memory",
   });
 
   return {
+    key,
+    stereotype: "store",
     async initState(initialState) {
       return {
         height: 0,
@@ -50,10 +52,5 @@ export default function (config, runtime) {
       };
     },
     async saveState() {},
-    async connect() {
-      console.log("connecting rx store to runtime ", runtime.id, config);
-      const db = await DB;
-      console.log("rxdb instance", db);
-    },
   };
 }
