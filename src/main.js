@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env node --experimental-vm-modules
 
 /*
     MIT License
@@ -24,10 +24,12 @@
     SOFTWARE.
 */
 
-require("colors");
-global.Promise = require("bluebird");
+import("colors");
+import Promise from "bluebird";
+global.Promise = Promise;
+import minimist from "minimist";
 
-const args = require("minimist")(process.argv.slice(2), {
+const args = minimist(process.argv.slice(2), {
   string: [],
   alias: {},
   default: {},
@@ -39,10 +41,10 @@ console.log();
 const commandKey = args._.shift();
 if (commandKey) {
   try {
-    const command = require(`./commands/${commandKey}`)();
     (async function () {
+      const command = await import(`./commands/${commandKey}.js`);
       try {
-        await command(args);
+        await command.default()(args);
       } catch (err) {
         console.error("execution error", err);
       }
@@ -55,4 +57,6 @@ if (commandKey) {
   process.exit(1);
 }
 
-function displayUsage() {}
+function displayUsage() {
+  console.log("usage...");
+}

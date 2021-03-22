@@ -21,27 +21,81 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 */
-const express = require("express");
+import express from "express";
+import Path from "path";
+import shortid from "shortid-36";
+import chokidar from "chokidar";
+import { Observable, Subject } from "rxjs";
+import { map } from "rxjs/operators/index.js";
+import loader from "./loader.js";
+import compiler from "./compiler.js";
+import installer from "./installer.js";
+import uninstaller from "./uninstaller.js";
+import worldScopeFactory from "./scopes/world.js";
+import registryFactory from "./registry.js";
+import expressWs from "express-ws";
+import vm from "vm";
+import sandbox from "./sandbox.js";
+import configSpi from "./config-spi.js";
+import schemaSpi from "./schema-spi.js";
+import scopeSpi from "./scope-spi.js";
 
-module.exports = function runtimeFactory(cfg = {}) {
+export function runtimeFactory(cfg = {}) {
   const app = express();
-  require("express-ws")(app);
+  expressWs(app);
+
+  const id = shortid.generate();
+
+  // contains all available components (loaded from local files)
+  const registry = registryFactory(cfg.registry);
+
+  // represent the virtual cluster state.
+  const cluster = {
+    processes: [],
+    events: new Subject(),
+    async start(proc, started = false) {
+      proc.id = proc.id || shortid.generate();
+      if (!started) {
+        await proc.start();
+      }
+      this.processes.push(proc);
+      this.events.next({ type: "lifecycle", status: "running", pid: proc.id });
+    },
+  };
+
+  // any incoming actions from ingresses (websocket and http for now)
+  const actions = new Subject();
 
   app.ws("/", function (ws) {
-    ws.on("message", async function (msg) {
-      console.log("received message", msg);
+    ws.on("message", async function (msg, req) {
+      // parse incoming message
+      const action = JSON.parse(msg);
+
+      // build the action context from http headers and params
+      action.context = {};
+
+      // push into actions subject
+      actions.push(action);
     });
   });
 
-  // register all system scopes
-  // world (org?)
-  // security scope (backed  by simple yaml file)
-  //
+  // register all lqs scopes
+  // world => manage cluster config, security scope relation, systems scopes
+  // security scope
+  // organization scope
+
   // register all test components
 
   // runtime api
   return {
-    async start() {
+    id,
+    port: cfg.port || 9000,
+    async start({ monitoring } = {}) {
+      // let's deploy any monitoring bundles
+      if (monitoring) {
+        console.log("deploying monitoring bundles", monitoring);
+      }
+
       app.listen(cfg.port || 9000, function (err) {
         if (err) {
           return console.error(err.message.red);
@@ -49,5 +103,95 @@ module.exports = function runtimeFactory(cfg = {}) {
         console.log("virtual cluster started exposing websocket gateway on port %d".green, cfg.port || 9000);
       });
     },
+    async deploy(root, { watch } = {}) {
+      // runtime spi
+      const spi = {
+        id,
+        path(sub) {
+          return Path.resolve(root, sub);
+        },
+        new(code) {
+          const script = new vm.Script(code);
+          try {
+            const context = vm.createContext(sandbox(this));
+            script.runInContext(context);
+            if (context.exports.default) {
+              return context.exports.default;
+            } else {
+              return context.exports;
+            }
+          } catch (err) {
+            console.error("runtime error", err);
+          }
+        },
+        register(comp) {
+          registry.register(comp);
+        },
+        wrapScope(scope) {
+          return scopeSpi(scope, this);
+        },
+        wrapConfig(cfg) {
+          return configSpi(cfg, this);
+        },
+        wrapSchema(spec) {
+          return schemaSpi(spec, this);
+        },
+        findComponents(...args) {
+          return registry.findComponents(...args);
+        },
+        actions_() {
+          return actions;
+        },
+        getCluster() {
+          return cluster;
+        },
+      };
+
+      // register all lqs scopes
+      const world = worldScopeFactory(cfg.world, spi);
+      cluster.start(world);
+
+      const files = new Observable(function observer(obs) {
+        // list the content of this path
+        const watcher = chokidar.watch("**/*.*", {
+          ignored: /(^|[\/\\])\../, // ignore dotfiles
+          persistent: true,
+          cwd: root,
+        });
+        watcher
+          .on("add", path => obs.next({ op: "add", path }))
+          .on("change", path => obs.next({ op: "change", path }))
+          .on("unlink", path => obs.next({ op: "remove", path }))
+          .on("error", error => obs.error(error))
+          .on("ready", () => {
+            if (!watch) {
+              console.log("all components are loaded. we don't want anything.");
+              watcher.close();
+              obs.complete();
+            }
+
+            console.log("starting all runnable scopes");
+            registry.components.subscribe(async comp => {
+              const instance = await comp.instance;
+              if (instance.runnable) {
+                console.log("starting scope", comp.key);
+                try {
+                  await instance.start();
+                } catch (err) {
+                  console.error(err);
+                }
+              }
+            });
+          });
+      });
+
+      const components = files.pipe(map(loader(spi)), map(compiler(spi)), map(installer(spi)), map(uninstaller(spi))).subscribe();
+
+      return {
+        id: shortid.generate(),
+        files,
+        components,
+      };
+    },
   };
-};
+}

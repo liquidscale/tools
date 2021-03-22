@@ -21,16 +21,18 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 */
-const runtimeFactory = require("../runtime");
+import { runtimeFactory } from "../runtime/index.js";
 
-module.exports = function () {
+export default function () {
   return async function (args) {
     console.log("launching virtual cluster...".cyan);
 
     const runtime = runtimeFactory();
-    await runtime.start();
+    await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
 
-    console.log("registering all local scopes");
-    console.log("connecting test harness");
+    console.log("deploy this as a deployment unit in our runtime. We keep watching files in order for our changes to be detected and automatically applied");
+    const bundle = await runtime.deploy(process.cwd(), { watch: true });
+    console.log("deployed bundle %s to runtime %s", bundle.id, runtime.id);
+    console.log("Please set ws://localhost:%d as backend url in your client app", runtime.port);
   };
-};
+}

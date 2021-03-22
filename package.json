@@ -1,6 +1,7 @@
 {
   "name": "@liquidscale/tools",
   "version": "0.1.0",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/liquidscale/tools.git"
@@ -10,12 +11,24 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@babel/core": "^7.13.10",
+    "@babel/preset-env": "^7.13.10",
     "bluebird": "^3.7.2",
     "chokidar": "^3.5.1",
     "colors": "^1.4.0",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
-    "minimist": "^1.2.5"
+    "fs-extra": "^9.1.0",
+    "immer": "^9.0.0",
+    "md5": "^2.3.0",
+    "mime": "^2.5.2",
+    "minimist": "^1.2.5",
+    "pouchdb-adapter-memory": "^7.2.2",
+    "@liquidscale/scope": "file:./plugins/scope",
+    "rxdb": "^9.15.0",
+    "rxjs": "^6.6.6",
+    "shortid-36": "^0.1.2",
+    "vm2": "^3.9.2"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
