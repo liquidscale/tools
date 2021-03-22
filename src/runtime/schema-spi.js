@@ -8,8 +8,6 @@ export default function (schemaSpec, runtime) {
     spec = runtime.findComponent({ stereotype: "schema", key: schemaSpec });
   }
 
-  console.log("wrapping schema into safe spi", spec);
-
   return {
     getField(key) {
       return null;

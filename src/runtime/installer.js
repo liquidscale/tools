@@ -1,14 +1,21 @@
-export default function (runtime) {
-  return function ({ op, comp }) {
-    if (op !== "remove") {
-      comp.instance = (async function (comp) {
-        const script = await comp.content;
-        return runtime.new(script.code);
-      })(comp);
+import { filter } from "rxjs/operators/index.js";
 
-      runtime.register(comp);
+export default function (runtime) {
+  runtime.events.pipe(filter(event => event.key === "component:compiled")).subscribe(({ component, from }) => {
+    let comp = null;
+    switch (component.stereotype) {
+      case "action":
+        comp = runtime.wrapAction(component.impl, component);
+        break;
+      default:
+        comp = component;
+        break;
     }
 
-    return comp;
-  };
+    if (from === "loaded") {
+      runtime.events.next({ key: "component:installed:new", component: comp });
+    } else {
+      runtime.events.next({ key: "component:installed:updated", component: comp });
+    }
+  });
 }

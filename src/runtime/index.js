@@ -1,197 +1,150 @@
-/*
-    MIT License
-
-    Copyright (c) 2021 Covistra Technologies Inc.
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in all
-    copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-    SOFTWARE.
-*/
-import express from "express";
-import Path from "path";
+import { Subject } from "rxjs";
 import shortid from "shortid-36";
-import chokidar from "chokidar";
-import { Observable, Subject } from "rxjs";
-import { map } from "rxjs/operators/index.js";
-import loader from "./loader.js";
+import { loader } from "./loader.js";
 import compiler from "./compiler.js";
 import installer from "./installer.js";
 import uninstaller from "./uninstaller.js";
-import worldScopeFactory from "./scopes/world.js";
-import registryFactory from "./registry.js";
-import expressWs from "express-ws";
+import { fileSystemBundle } from "./fs-bundle.js";
 import vm from "vm";
 import sandbox from "./sandbox.js";
 import configSpi from "./config-spi.js";
 import schemaSpi from "./schema-spi.js";
 import scopeSpi from "./scope-spi.js";
+import actionSpi from "./action-spi.js";
+import registry from "./registry.js";
+import config from "./config.js";
+import oh from "object-hash";
+import lodash from "lodash";
+import health from "./health.js";
 
-export function runtimeFactory(cfg = {}) {
-  const app = express();
-  expressWs(app);
+const { map } = lodash;
 
-  const id = shortid.generate();
+export function runtimeFactory(options = {}) {
+  // This is the internal api of the runtime instance.
+  const events = new Subject();
 
-  // contains all available components (loaded from local files)
-  const registry = registryFactory(cfg.registry);
-
-  // represent the virtual cluster state.
-  const cluster = {
-    processes: [],
-    events: new Subject(),
-    async start(proc, started = false) {
-      proc.id = proc.id || shortid.generate();
-      if (!started) {
-        await proc.start();
+  const spi = {
+    id: shortid.generate(),
+    events,
+    config: config(events, options),
+    new(code) {
+      const script = new vm.Script(code);
+      try {
+        const context = vm.createContext(sandbox(this));
+        script.runInContext(context);
+        if (context.exports.default) {
+          return context.exports.default;
+        } else {
+          return context.exports;
+        }
+      } catch (err) {
+        console.error("runtime error", err);
       }
-      this.processes.push(proc);
-      this.events.next({ type: "lifecycle", status: "running", pid: proc.id });
+    },
+    wrapScope(scope) {
+      return scopeSpi(scope, this);
+    },
+    wrapConfig(cfg) {
+      return configSpi(cfg, this);
+    },
+    wrapSchema(spec) {
+      return schemaSpi(spec, this);
+    },
+    wrapAction(action, comp) {
+      return actionSpi(action, this, comp);
+    },
+    async findComponent(...args) {
+      return this.registry.findComponent(...args);
+    },
+    async findComponents(...args) {
+      return this.registry.findComponents(...args);
     },
   };
 
-  // any incoming actions from ingresses (websocket and http for now)
-  const actions = new Subject();
+  // initialize our component registry
+  spi.registry = registry(spi);
+  spi.health = health(spi);
 
-  app.ws("/", function (ws) {
-    ws.on("message", async function (msg, req) {
-      // parse incoming message
-      const action = JSON.parse(msg);
+  // connect our component handlers
+  loader(spi);
+  compiler(spi);
+  installer(spi);
+  uninstaller(spi);
 
-      // build the action context from http headers and params
-      action.context = {};
+  const configHashes = {};
 
-      // push into actions subject
-      actions.push(action);
-    });
+  // connect all gateways
+  spi.config.changes.subscribe(cfg => {
+    if (cfg.gateways) {
+      const newHash = oh(cfg.gateways || {});
+      const prevHash = configHashes.gateways;
+      if (prevHash !== newHash) {
+        map(cfg.gateways, async (cfg, key) => {
+          const gateway = await spi.registry.findComponent({ stereotype: "gateway", key });
+          if (!gateway) {
+            console.log("creating gateway %s with config", key, cfg, gateway);
+          } else {
+            console.log("configuring existing gateway %s with config", key, cfg);
+          }
+        });
+        configHashes.gateways = newHash;
+      }
+    }
   });
 
-  // register all lqs scopes
-  // world => manage cluster config, security scope relation, systems scopes
-  // security scope
-  // organization scope
-
-  // register all test components
-
-  // runtime api
-  return {
-    id,
-    port: cfg.port || 9000,
-    async start({ monitoring } = {}) {
-      // let's deploy any monitoring bundles
-      if (monitoring) {
-        console.log("deploying monitoring bundles", monitoring);
-      }
-
-      app.listen(cfg.port || 9000, function (err) {
-        if (err) {
-          return console.error(err.message.red);
-        }
-        console.log("virtual cluster started exposing websocket gateway on port %d".green, cfg.port || 9000);
-      });
-    },
-    async deploy(root, { watch } = {}) {
-      // runtime spi
-      const spi = {
-        id,
-        path(sub) {
-          return Path.resolve(root, sub);
-        },
-        new(code) {
-          const script = new vm.Script(code);
-          try {
-            const context = vm.createContext(sandbox(this));
-            script.runInContext(context);
-            if (context.exports.default) {
-              return context.exports.default;
-            } else {
-              return context.exports;
-            }
-          } catch (err) {
-            console.error("runtime error", err);
+  spi.config.changes.subscribe(cfg => {
+    if (cfg.transports) {
+      const newHash = oh(cfg.transports || {});
+      const prevHash = configHashes.transports;
+      if (prevHash !== newHash) {
+        map(cfg.transports, async (cfg, key) => {
+          const transport = await spi.registry.findComponent({ stereotype: "transport", key });
+          if (!transport) {
+            console.log("creating transport %s with config", key, cfg);
+          } else {
+            console.log("configuring existing transport %s with config", key, cfg);
           }
-        },
-        register(comp) {
-          registry.register(comp);
-        },
-        wrapScope(scope) {
-          return scopeSpi(scope, this);
-        },
-        wrapConfig(cfg) {
-          return configSpi(cfg, this);
-        },
-        wrapSchema(spec) {
-          return schemaSpi(spec, this);
-        },
-        findComponents(...args) {
-          return registry.findComponents(...args);
-        },
-        actions_() {
-          return actions;
-        },
-        getCluster() {
-          return cluster;
-        },
-      };
-
-      // register all lqs scopes
-      const world = worldScopeFactory(cfg.world, spi);
-      cluster.start(world);
-
-      const files = new Observable(function observer(obs) {
-        // list the content of this path
-        const watcher = chokidar.watch("**/*.*", {
-          ignored: /(^|[\/\\])\../, // ignore dotfiles
-          persistent: true,
-          cwd: root,
         });
-        watcher
-          .on("add", path => obs.next({ op: "add", path }))
-          .on("change", path => obs.next({ op: "change", path }))
-          .on("unlink", path => obs.next({ op: "remove", path }))
-          .on("error", error => obs.error(error))
-          .on("ready", () => {
-            if (!watch) {
-              console.log("all components are loaded. we don't want anything.");
-              watcher.close();
-              obs.complete();
-            }
+        configHashes.transports = newHash;
+      }
+    }
+  });
 
-            console.log("starting all runnable scopes");
-            registry.components.subscribe(async comp => {
-              const instance = await comp.instance;
-              if (instance.runnable) {
-                console.log("starting scope", comp.key);
-                try {
-                  await instance.start();
-                } catch (err) {
-                  console.error(err);
-                }
-              }
-            });
-          });
-      });
+  spi.config.changes.subscribe(cfg => {
+    if (cfg.stores) {
+      const newHash = oh(cfg.stores || {});
+      const prevHash = configHashes.stores;
+      if (prevHash !== newHash) {
+        map(cfg.stores, async (cfg, key) => {
+          const store = await spi.registry.findComponent({ stereotype: "store", key });
+          if (!store) {
+            console.log("creating store %s with config", key, cfg);
+          } else {
+            console.log("configuring existing store %s with config", key, cfg);
+          }
+        });
+        configHashes.stores = newHash;
+      }
+    }
+  });
 
-      const components = files.pipe(map(loader(spi)), map(compiler(spi)), map(installer(spi)), map(uninstaller(spi))).subscribe();
+  // create world scope
+  // create organization scope
+  // create security scope
+  // create cluster scope (kubernetes api or virtual cluster)
+  // create media library scope (file uploading, processing, serving and handling)
 
-      return {
-        id: shortid.generate(),
-        files,
-        components,
-      };
+  // Return the public api for our runtime
+  return {
+    events: events.asObservable(),
+    start() {
+      // connect all transports, gateways, stores and start runnable scopes
+    },
+    stop() {
+      // disconnect all transports, gateways, stores
+    },
+    deploy(root, options) {
+      return fileSystemBundle(spi)(root, options);
     },
   };
 }

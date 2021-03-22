@@ -28,11 +28,12 @@ export default function () {
     console.log("launching virtual cluster...".cyan);
 
     const runtime = runtimeFactory();
-    await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
 
     console.log("deploy this as a deployment unit in our runtime. We keep watching files in order for our changes to be detected and automatically applied");
     const bundle = await runtime.deploy(process.cwd(), { watch: true });
     console.log("deployed bundle %s to runtime %s", bundle.id, runtime.id);
+
+    await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
     console.log("Please set ws://localhost:%d as backend url in your client app", runtime.port);
   };
 }

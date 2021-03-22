@@ -1,9 +1,7 @@
+import { filter } from "rxjs/operators/index.js";
+
 export default function (runtime) {
-  return function ({ op, path, comp }) {
-    if (op === "remove") {
-      console.log("removing component ", path);
-      runtime.unregister(path);
-    }
-    return comp;
-  };
+  runtime.events.pipe(filter(event => event.key === "bundle:changed" && event.op === "remove")).subscribe(event => {
+    console.log("uninstalling component ", event);
+  });
 }
