@@ -18,6 +18,7 @@ import health from "./health.js";
 import gateways from "./gateways/index.js";
 import transports from "./transports/index.js";
 import stores from "./stores/index.js";
+import world from "./scopes/world.js";
 
 export function runtimeFactory(options = {}) {
   // This is the internal api of the runtime instance.
@@ -78,7 +79,10 @@ export function runtimeFactory(options = {}) {
   stores(spi);
 
   // create world scope
+  world(spi);
+
   // create organization scope
+
   // create security scope
   // create cluster scope (kubernetes api or virtual cluster)
   // create media library scope (file uploading, processing, serving and handling)

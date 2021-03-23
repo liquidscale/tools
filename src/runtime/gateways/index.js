@@ -9,7 +9,7 @@ export default function (runtime) {
 
   runtime.config.changes.subscribe(cfg => {
     if (cfg.gateways) {
-      const newHash = oh(cfg.gateways || {});
+      const newHash = oh(cfg.gateways);
       if (prevHash !== newHash) {
         map(cfg.gateways, async (cfg, key) => {
           const gateway = await runtime.registry.findComponent({ stereotype: "gateway", key });
