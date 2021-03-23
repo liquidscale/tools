@@ -8,15 +8,14 @@ export default function (runtime) {
             schema: null,
             finalizers: [],
             initializers: [],
-            transports: [],
-            gateways: [],
             store: null,
+            config: {},
+            status: "pending",
           };
 
           // FIXME: put this into a system-scope component
           return {
             key,
-            runnable: true,
             stereotype: "system",
             schema(key) {
               _system.schema = key;
@@ -27,64 +26,79 @@ export default function (runtime) {
             finalizer(fn) {
               _system.finalizers.push(fn);
             },
-            transport(key) {
-              _system.transports.push(key);
-            },
-            gateway(key) {
-              _system.gateways.push(key);
-            },
             store(key) {
               _system.store = key;
             },
-            async start() {
-              console.log("starting scope", _system);
+            getComponent() {
+              return {
+                key: this.key,
+                getStatus() {
+                  return _system.status;
+                },
+                stereotype: this.stereotype,
+                applyConfig(cfg) {
+                  _system.config = cfg;
+                },
+                async start() {
+                  console.log("starting system".cyan, _system.key);
+                  let store = null;
 
-              if (_system.store) {
-                _system.state = await _system.store.initState({});
-              } else {
-                _system.state = {
-                  data: {},
-                  draft() {
-                    return {};
-                  },
-                };
-              }
+                  if (_system.store) {
+                    try {
+                      store = await runtime.resolve({ stereotype: "store", key: _system.store });
+                      _system.state = await store.initState({});
+                    } catch (err) {
+                      console.error("unable to resolve store %s: %s".red, _system.store, err.message);
+                    }
+                  }
 
-              // Run all initializers to build initial state
-              const initializers = await runtime.findComponents({ stereotype: "initializer", scope: _system.key });
-              console.log("initializers", initializers);
-              if (initializers.length > 0) {
-                const draft = _system.state.draft();
-                try {
-                  console.log("creating initializer context");
-                  const context = { scope: runtime.wrapScope(_system), config: runtime.wrapConfig(cfg), schema: runtime.wrapSchema(_system.schema) };
-                  initializers.map(initializer => initializer(draft, context));
-                  console.log("commit change");
-                  _system.state.commit(draft);
-                } catch (err) {
-                  _system.state.rollback(draft);
-                }
-              }
+                  if (!_system.state) {
+                    _system.state = {
+                      data: {},
+                      draft() {
+                        return {};
+                      },
+                      commit(draft) {
+                        this.data = draft;
+                      },
+                      rollback() {
+                        return this.data;
+                      },
+                    };
+                  }
 
-              console.log("computed initial state ", _system.state);
+                  // Run all initializers to build initial state
+                  const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
+                  if (initializers.length > 0) {
+                    const draft = _system.state.draft();
+                    try {
+                      const context = { scope: runtime.wrapScope(_system), config: runtime.wrapConfig(_system.config), schema: runtime.wrapSchema(_system.schema) };
+                      initializers.map(initializer => initializer(draft, context));
+                      _system.state.commit(draft);
+                    } catch (err) {
+                      _system.state.rollback(draft);
+                    }
+                  }
 
-              // Persist initial state
-              if (_system.store) {
-                _system.store.saveState(_system.state);
-              }
+                  // Persist initial state
+                  if (store) {
+                    store.saveState(_system.state);
+                  }
 
-              // connect transport
-              _system.transports.map(transport => transport.connect());
+                  // publish all our publications
+                  runtime.publishAll(_system.publications);
+                  runtime.subscribeAll(_system.subscriptions);
+                  runtime.actions.subscribe({ stereotype: "system", key: _system.key, version: _system.version }, function (action) {
+                    console.log("executing action", action);
+                  });
+                  runtime.queries.subscribe({ stereotype: "system", key: _system.key, version: _system.version }, function (action) {
+                    console.log("executing query", action);
+                  });
 
-              // connect gateway
-              _system.gateways.map(gateway => gateway.connect(runtime.actions_()));
-
-              // connects our subscribers and subcriptions to receive live changes from other scopes that feed services
-              _system.transports.map(transport => transport.publish(_system.publications));
-              _system.transports.map(transport => transport.subscribe(_system.subscriptions));
-
-              // Add this scope as running in our virtual cluster
-              runtime.getCluster().start(_system, true);
+                  _system.status = "active";
+                  console.log("system %s successfully started".green, _system.key);
+                },
+              };
             },
           };
         },

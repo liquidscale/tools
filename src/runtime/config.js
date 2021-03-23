@@ -3,10 +3,10 @@ import lodash from "lodash";
 import { filter } from "rxjs/operators/index.js";
 import Yaml from "js-yaml";
 
-const { get, merge } = lodash;
+const { get, merge, identity } = lodash;
 
 export default function config(events) {
-  const cfg = new BehaviorSubject({});
+  const cfg = new BehaviorSubject();
 
   events.pipe(filter(event => event.key.indexOf("component:installed") === 0 && event.component.stereotype === "config")).subscribe(event => {
     // apply content any modified config
@@ -22,7 +22,7 @@ export default function config(events) {
   });
 
   return {
-    changes: cfg.asObservable(),
+    changes: cfg.asObservable().pipe(filter(identity)),
     get(key, devaultValue) {
       return get(cfg, key) || devaultValue;
     },

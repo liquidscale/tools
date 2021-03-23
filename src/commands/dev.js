@@ -36,7 +36,6 @@ export default function () {
     runtime.subscribe("bundle:ready", async function (event) {
       if (bundle.id === event.bundle.id) {
         await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
-        console.log("development cluster %s is started in watch mode. Visit http://localhost:9000 to access your development dashboard", runtime.id);
       }
     });
   };

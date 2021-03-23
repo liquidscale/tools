@@ -28,18 +28,15 @@ export default function (key, config, runtime) {
           return createDraft(this.data);
         },
         commit(draft) {
-          console.log("committing changes");
           this.height++;
           try {
             const data = finishDraft(draft, patches => {
-              console.log("creating new frame", patches);
               this.frames.push({
                 height: this.height,
                 ts: new Date(),
                 patches,
               });
             });
-            console.log("new data", data);
             this.data = data;
             this.hash = md5(JSON.stringify(this.data));
           } catch (err) {

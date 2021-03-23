@@ -16,11 +16,15 @@ export default function (runtime) {
     )
     .subscribe(({ component, key }) => {
       if (component.type === "application/javascript") {
-        component.impl = runtime.new(
-          babel.transform(component.content, {
-            presets: [[babelPresetEnv, { modules: "auto", targets: { node: "current" } }]],
-          }).code
-        );
+        try {
+          component.impl = runtime.new(
+            babel.transform(component.content, {
+              presets: [[babelPresetEnv, { modules: "auto", targets: { node: "current" } }]],
+            }).code
+          );
+        } catch (err) {
+          console.error({ stereotype: component.stereotype, key: component.key }, err.message.red);
+        }
       }
       runtime.events.next({ key: "component:compiled", from: key.split(":").slice(-1)[0], component });
     });

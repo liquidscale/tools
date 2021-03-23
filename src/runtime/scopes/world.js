@@ -14,6 +14,7 @@ export default function (runtime) {
   runtime.config.changes.subscribe(async cfg => {
     const newHash = oh(cfg.world || {});
     if (prevHash !== newHash) {
+      console.log("configuring world scope", cfg.world || {});
       if (startSubscription) {
         startSubscription.unsubscribe();
       }

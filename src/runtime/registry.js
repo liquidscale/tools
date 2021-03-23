@@ -1,12 +1,13 @@
 import { filter, find } from "rxjs/operators/index.js";
 import { Observable } from "rxjs";
+import Promise from "bluebird";
 
 export default function (runtime) {
   const components = [];
 
   runtime.events.pipe(filter(event => event.key.indexOf("component:installed:") === 0)).subscribe(({ key, component }) => {
     if (key.indexOf(":new") !== -1) {
-      console.log("registering %s", component.stereotype, component.key);
+      console.log("registering %s %s".gray, component.stereotype, component.key);
       components.push(component);
       runtime.events.next({ key: "component:registered", component });
     } else if (key.indexOf(":updated") !== -1) {
@@ -62,6 +63,17 @@ export default function (runtime) {
     },
     findComponent(query, options) {
       return components.find(queryHandler(query, options));
+    },
+    resolve(query, options = {}) {
+      return new Promise(function (resolve) {
+        const timer = setInterval(function () {
+          const target = components.find(queryHandler(query, options));
+          if (target) {
+            clearInterval(timer);
+            resolve(target);
+          }
+        }, options.interval || 100);
+      }).timeout(options.timeout || 2000);
     },
     findComponents(query, options) {
       return components.filter(queryHandler(query, options));
