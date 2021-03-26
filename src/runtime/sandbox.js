@@ -88,11 +88,8 @@ export default function (runtime) {
                   // publish all our publications
                   runtime.publishAll(_system.publications);
                   runtime.subscribeAll(_system.subscriptions);
-                  runtime.actions.subscribe({ stereotype: "system", key: _system.key, version: _system.version }, function (action) {
-                    console.log("executing action", action);
-                  });
-                  runtime.queries.subscribe({ stereotype: "system", key: _system.key, version: _system.version }, function (action) {
-                    console.log("executing query", action);
+                  runtime.queries.subscribe(_system.key, function (query) {
+                    console.log("executing query on system scope %s", _system.key, query);
                   });
 
                   _system.status = "active";

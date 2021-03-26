@@ -1,5 +1,5 @@
 import { filter, find } from "rxjs/operators/index.js";
-import { Observable } from "rxjs";
+import Observable from "rxjs";
 import Promise from "bluebird";
 
 export default function (runtime) {
@@ -52,14 +52,17 @@ export default function (runtime) {
   };
 
   return {
+    addComponent(comp) {
+      components.push(comp);
+    },
     components() {
       return Observable.of(components);
     },
     selectComponents(query, options) {
-      return this.components.pipe(filter(queryHandler(query, options)));
+      return this.components().pipe(filter(queryHandler(query, options)));
     },
     selectComponent(query, options) {
-      return this.components.pipe(find(queryHandler(query, options)));
+      return this.components().pipe(find(queryHandler(query, options)));
     },
     findComponent(query, options) {
       return components.find(queryHandler(query, options));

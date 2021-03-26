@@ -6,7 +6,7 @@ export default function (runtime) {
     try {
       switch (component.stereotype) {
         case "action":
-          comp = runtime.wrapAction(component.impl, component);
+          comp = runtime.wrapAction(component);
           break;
         case "system":
           comp = component.impl.getComponent();

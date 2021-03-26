@@ -1,11 +1,57 @@
 import { filter } from "rxjs/operators/index.js";
 import oh from "object-hash";
+import signinAction from "./security/signin.action.js";
+import JWT from "jsonwebtoken";
+import lodash from "lodash";
+
+const { get } = lodash;
+class ActionError {
+  constructor(spec) {
+    Object.assign(this, spec);
+  }
+}
 
 export default function (runtime) {
   const _scope = {
     key: "security",
     stereotype: "scope",
-    impl: {},
+    store: runtime.createStore("memory", "security"),
+    async executeInContext(action, data, fn, context, options = {}) {
+      console.log("executing action in security scope");
+
+      try {
+        // TODO: check if action is supported
+        // TODO: check if all permissions are satisfied
+
+        const state = await this.store.loadState(context);
+        const draft = state.draft();
+
+        // execute the fn, injecting all helpers and errors
+        const helpers = {
+          async verifyPassword(password, encrypted) {
+            // TODO: use bcrypt
+            return password === encrypted;
+          },
+          async jwtSign(sub, scope = "*") {
+            return JWT.sign({ scope, username: sub.username }, _scope.config.jwt.signkey, { audience: _scope.key, issuer: "lqsl.cloud", subject: sub.username, expiresIn: "7 days" });
+          },
+        };
+        const errors = {
+          ActionError,
+        };
+
+        const result = await fn({ ...action, data }, draft, { helpers, errors });
+
+        // commit state if action is not read-only
+        if (!options.readOnly) {
+          state.commit(draft);
+        }
+
+        return [result, null];
+      } catch (err) {
+        return [null, err];
+      }
+    },
   };
 
   let startSubscription = null;
@@ -15,6 +61,11 @@ export default function (runtime) {
     const newHash = oh(cfg.security || {});
     if (prevHash !== newHash) {
       console.log("configuring security scope", cfg.security || {});
+
+      // initializing scope state with our new config
+      await _scope.store.initState(get(cfg.security, "state") || {});
+      _scope.config = cfg.security;
+
       if (startSubscription) {
         startSubscription.unsubscribe();
       }
@@ -23,6 +74,13 @@ export default function (runtime) {
       if (!targetScope) {
         startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
           console.log("starting security scope");
+
+          runtime.queries.subscribe(_scope.key, query => {
+            console.log("executing query on security scope", query);
+          });
+
+          // register our associated actions
+          signinAction(runtime);
         });
         runtime.events.next({ key: "component:installed:new", component: _scope });
       } else {

@@ -15,38 +15,48 @@ export default function (key, config, runtime) {
     adapter: "memory",
   });
 
+  //TODO: save state to rxdb memory db
+  const _state = {
+    height: 0,
+    data: {},
+    frames: [],
+    hash: md5(JSON.stringify({})),
+    draft() {
+      return createDraft(this.data);
+    },
+    commit(draft) {
+      this.height++;
+      try {
+        const data = finishDraft(draft, patches => {
+          this.frames.push({
+            height: this.height,
+            ts: new Date(),
+            patches,
+          });
+        });
+        this.data = data;
+        this.hash = md5(JSON.stringify(this.data));
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    rollback() {
+      // noop
+    },
+  };
+
   return {
     key,
     stereotype: "store",
     async initState(initialState) {
-      return {
-        height: 0,
-        data: initialState || {},
-        frames: [],
-        hash: md5(JSON.stringify(initialState || {})),
-        draft() {
-          return createDraft(this.data);
-        },
-        commit(draft) {
-          this.height++;
-          try {
-            const data = finishDraft(draft, patches => {
-              this.frames.push({
-                height: this.height,
-                ts: new Date(),
-                patches,
-              });
-            });
-            this.data = data;
-            this.hash = md5(JSON.stringify(this.data));
-          } catch (err) {
-            console.error(err);
-          }
-        },
-        rollback() {
-          // noop
-        },
-      };
+      _state.data = initialState || {};
+      _state.hash = md5(JSON.stringify(_state.data));
+      _state.frames = [];
+      return _state;
+    },
+    async loadState(context) {
+      //TODO: Support context
+      return _state;
     },
     async saveState() {},
   };

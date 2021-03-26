@@ -24,6 +24,10 @@ import cluster from "./scopes/cluster.js";
 import security from "./scopes/security.js";
 import library from "./scopes/library.js";
 import systems from "./scopes/systems.js";
+import user from "./scopes/user.js";
+import device from "./scopes/device.js";
+import matcher from "matcher";
+import memoryStore from "./stores/memory.js";
 
 export function runtimeFactory(options = {}) {
   // This is the internal api of the runtime instance.
@@ -35,13 +39,19 @@ export function runtimeFactory(options = {}) {
     id: shortid.generate(),
     events,
     actions: {
-      subscribe(target, observer) {
-        return actions.pipe(filter(action => true)).subscribe(observer);
+      subscribe(pattern, observer) {
+        return actions.pipe(filter(action => matcher.isMatch(action.key, pattern))).subscribe(observer);
+      },
+      execute(action) {
+        return actions.next(action);
       },
     },
     queries: {
-      subscribe(target, observer) {
-        return queries.pipe(filter(query => true)).subscribe(observer);
+      subscribe(scopePattern, observer) {
+        return queries.pipe(filter(query => matcher.isMatch(query.scope, scopePattern))).subscribe(observer);
+      },
+      execute(query) {
+        return queries.next(query);
       },
     },
     config: config(events, options),
@@ -65,11 +75,21 @@ export function runtimeFactory(options = {}) {
     wrapConfig(cfg) {
       return configSpi(cfg, this);
     },
+    schema(spec) {
+      return schemaSpi(spec, this);
+    },
+    createStore(type, key, config = {}) {
+      if (type === "memory") {
+        return memoryStore(key, config, this);
+      } else {
+        return null;
+      }
+    },
     wrapSchema(spec) {
       return schemaSpi(spec, this);
     },
-    wrapAction(action, comp) {
-      return actionSpi(action, this, comp);
+    wrapAction(comp) {
+      return actionSpi(comp.impl, this, comp);
     },
     findComponent(...args) {
       return this.registry.findComponent(...args);
@@ -82,6 +102,14 @@ export function runtimeFactory(options = {}) {
     },
     publishAll(publications) {},
     subscribeAll(subscriptions) {},
+    dynamicPattern(scopeKey) {
+      const idx = scopeKey.indexOf("/$");
+      if (idx !== -1) {
+        return `${scopeKey.substring(0, idx)}*`;
+      } else {
+        return scopeKey;
+      }
+    },
   };
 
   // initialize our component registry
@@ -104,6 +132,8 @@ export function runtimeFactory(options = {}) {
   security(spi);
   cluster(spi);
   library(spi);
+  user(spi);
+  device(spi);
 
   // load all system scopes, which will trigger all sub-components initialization like timers, triggers, effects, etc.
   systems(spi);
@@ -117,7 +147,9 @@ export function runtimeFactory(options = {}) {
     },
     start() {
       console.log("starting runtime", spi.id);
-      events.next({ key: "runtime:start" });
+      setTimeout(function () {
+        events.next({ key: "runtime:start" });
+      }, 100);
     },
     stop() {
       console.log("stopping runtime", spi.id);

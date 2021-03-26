@@ -9,20 +9,63 @@ export default function (key, cfg, runtime) {
   const app = express();
   expressWs(app);
 
+  // TODO: add oauth middleware. check incoming token, extract user identity
+
   app.ws("/", function (ws) {
     ws.on("message", async function (msg, req) {
-      // parse incoming message
-      const action = JSON.parse(msg);
+      const message = JSON.parse(msg);
+      if (message.query) {
+        if (message.op === "open") {
+          const query = {
+            id: message.query,
+            op: "open",
+            scope: message.scope,
+            expression: message.expression,
+            options: message.options,
+            context: {
+              actor: null,
+            },
+            channel: {
+              emit(type, data) {
+                ws.send(JSON.stringify({ sid: query.id, type, data }));
+              },
+              error(error) {
+                ws.send(JSON.stringify({ sid: query.id, type: "error", error }));
+              },
+            },
+          };
 
-      // build the action context from http headers and params
-      action.context = {};
+          // push into actions subject
+          runtime.queries.execute(query);
+        } else if (message.op === "close") {
+          runtime.queries.execute({ id: message.query, op: "close", context: { actor: null } });
+        }
+      } else if (message.action) {
+        const action = {
+          ...message,
+          context: {},
+          channel: {
+            emit(data, type = "result") {
+              ws.send(JSON.stringify({ sid: message.action, type, data }));
+            },
+            error(error) {
+              console.error("action error", error);
+              ws.send(JSON.stringify({ sid: message.action, type: "error", error }));
+            },
+          },
+        };
 
-      // push into actions subject
-      runtime.actions.next(action);
+        // push into actions subject
+        runtime.actions.execute(action);
+      } else {
+        console.error("unsupported message type", message);
+        ws.send(JSON.stringify({ error: "unsupported-message-type" }));
+      }
     });
   });
 
   runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
+    console.log("starting websocket gateway on port", port);
     app.listen(port, function (err) {
       if (err) {
         return console.error(err);
