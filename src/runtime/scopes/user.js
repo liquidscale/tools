@@ -32,7 +32,6 @@ export default function (runtime) {
             }
 
             try {
-              console.log("received query op", query);
               if (query.op === "open") {
                 console.log("executing query on user scope", query);
 
@@ -54,14 +53,14 @@ export default function (runtime) {
                 // instantiate the target scope for the specified user
                 const userScope = await targetScope.loadScope(query.context.actor);
                 const queryTracker = userScope.queryInContext(query.expression, query.options, query.context);
-                query.channel.emit(await queryTracker.snapshot());
+                query.channel.emit(queryTracker.snapshot());
                 queryTracker.complete();
               } else if (query.op === "close") {
                 console.log("closing query", query.id);
                 const { queryTracker, subscription } = queryTrackers[query.id];
                 if (subscription) {
                   subscription.unsubscribe();
-                  queryTracker.cancel();
+                  queryTracker.complete();
                 }
               }
             } catch (err) {

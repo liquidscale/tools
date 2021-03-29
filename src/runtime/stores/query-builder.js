@@ -25,27 +25,29 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
       let queryResultTracker = {
         selector,
         cached: data,
-        result: [],
         query,
         results: new Subject(),
+        snapshot() {
+          let snapshot = null;
+
+          if (this.selector) {
+            snapshot = jp.query(this.cached, this.selector);
+          }
+
+          if (this.query) {
+            snapshot = new Query(snapshot || this.cached).find(this.query.expression, this.query.options).get();
+          }
+
+          return snapshot;
+        },
       };
 
       const stream = publisher.subscribe(frames => {
-        // apply this frame to our current data
-        queryResultTracker.cached = frames.reduce((data, frame) => applyPatches(data, frame.patches), queryResultTracker.cached);
-
-        if (queryResultTracker.selector) {
-          queryResultTracker.result = jp.query(queryResultTracker.cached, queryResultTracker.selector);
-        }
-
-        if (queryResultTracker.query) {
-          queryResultTracker.result = new Query(queryResultTracker.result || queryResultTracker.cached).find(queryResultTracker.query.expression, queryResultTracker.query.options).get();
-        }
-        console.log("publishing query result", queryResultTracker.result);
-        queryResultTracker.results.next(queryResultTracker.result);
+        this.cached = frames.reduce((data, frame) => applyPatches(data, frame.patches), this.cached);
+        queryResultTracker.results.next(queryResultTracker.snapshot());
       });
 
-      queryResultTracker.cancel = function () {
+      queryResultTracker.complete = function () {
         stream.unsubscribe();
       };
 
