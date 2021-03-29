@@ -2,10 +2,14 @@ import { filter } from "rxjs/operators/index.js";
 import oh from "object-hash";
 
 export default function (runtime) {
+  const queryTrackers = {};
+
   const _scope = {
     key: "user/$username",
     stereotype: "scope",
-    impl: {},
+    async loadScope(key) {
+      return runtime.wrapScope({ key: `user/${key}`, stereotype: "scope" });
+    },
   };
 
   let startSubscription = null;
@@ -22,21 +26,48 @@ export default function (runtime) {
       const targetScope = await runtime.registry.findComponent({ stereotype: _scope.stereotype, key: _scope.key });
       if (!targetScope) {
         startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-          console.log("starting user scope");
-          runtime.queries.subscribe(runtime.dynamicPattern(_scope.key), query => {
-            console.log("executing query on user scope", query);
-
+          runtime.queries.subscribe(runtime.dynamicPattern(_scope.key), async query => {
             if (!query.context.actor) {
-              query.channel.error({ message: "unauthorized", code: 401 });
+              return query.channel.error({ message: "unauthorized", code: 401 });
             }
 
-            // instantiate the target scope for the specified user
+            try {
+              console.log("received query op", query);
+              if (query.op === "open") {
+                console.log("executing query on user scope", query);
 
-            // create subscription on this scope with the provided context and selector
+                // instantiate the target scope for the specified user
+                const userScope = await _scope.loadScope(query.context.actor);
 
-            // retrieve the subscription state and produce a result message
+                // create subscription on this scope with the provided context and selector
+                const [queryTracker, error] = await userScope.queryInContext(query.expression, query.options, query.context);
+                if (queryTracker) {
+                  // register subscription (query id, subscription)
+                  console.log("tracker", queryTracker);
+                  queryTrackers[query.id] = { queryTracker, subscription: queryTracker.results.subscribe(result => query.channel.emit(result)) };
+                } else {
+                  throw error;
+                }
+              } else if (query.op === "snapshot") {
+                console.log("get query snapshot");
 
-            // produce an error message if something wrong happens
+                // instantiate the target scope for the specified user
+                const userScope = await targetScope.loadScope(query.context.actor);
+                const queryTracker = userScope.queryInContext(query.expression, query.options, query.context);
+                query.channel.emit(await queryTracker.snapshot());
+                queryTracker.complete();
+              } else if (query.op === "close") {
+                console.log("closing query", query.id);
+                const { queryTracker, subscription } = queryTrackers[query.id];
+                if (subscription) {
+                  subscription.unsubscribe();
+                  queryTracker.cancel();
+                }
+              }
+            } catch (err) {
+              console.error(err);
+              query.channel.error(err);
+            }
           });
         });
         runtime.events.next({ key: "component:installed:new", component: _scope });

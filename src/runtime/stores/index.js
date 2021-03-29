@@ -16,7 +16,7 @@ export default function (runtime) {
           if (!store) {
             if (cfg.type === "memory") {
               console.log("creating store %s with config", key, cfg);
-              const store = memoryStore(key, cfg, runtime);
+              const store = await memoryStore(key, cfg, runtime);
               runtime.events.next({ key: "component:installed:new", component: store });
             } else {
               throw new Error("unsupported store type:" + cfg.type);

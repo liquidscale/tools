@@ -1,6 +1,9 @@
 import express from "express";
 import expressWs from "express-ws";
 import { filter } from "rxjs/operators/index.js";
+import lodash from "lodash";
+
+const { get } = lodash;
 
 export default function (key, cfg, runtime) {
   console.log("configuring a websocket gateway", key, cfg);
@@ -14,6 +17,18 @@ export default function (key, cfg, runtime) {
   app.ws("/", function (ws) {
     ws.on("message", async function (msg, req) {
       const message = JSON.parse(msg);
+
+      // extract token
+      if (message.token) {
+        try {
+          const securityScope = await runtime.resolve({ stereotype: "scope", key: "security" });
+          message.tokenInfo = securityScope.helpers.extractTokenInfos(message.token);
+        } catch (err) {
+          console.error(err);
+          return ws.send(JSON.stringify({ error: { message: "invalid token or error processing it", code: 403 } }));
+        }
+      }
+
       if (message.query) {
         if (message.op === "open") {
           const query = {
@@ -23,10 +38,11 @@ export default function (key, cfg, runtime) {
             expression: message.expression,
             options: message.options,
             context: {
-              actor: null,
+              actor: get(message.tokenInfo, "username"),
+              permissions: get(message.tokenInfo, "scope"),
             },
             channel: {
-              emit(type, data) {
+              emit(data, type = "result") {
                 ws.send(JSON.stringify({ sid: query.id, type, data }));
               },
               error(error) {

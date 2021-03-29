@@ -28,12 +28,17 @@ import user from "./scopes/user.js";
 import device from "./scopes/device.js";
 import matcher from "matcher";
 import memoryStore from "./stores/memory.js";
+import lodash from "lodash";
+
+const { get } = lodash;
 
 export function runtimeFactory(options = {}) {
   // This is the internal api of the runtime instance.
   const events = new Subject();
   const actions = new Subject();
   const queries = new Subject();
+
+  const activeStores = {};
 
   const spi = {
     id: shortid.generate(),
@@ -69,7 +74,7 @@ export function runtimeFactory(options = {}) {
         console.error("runtime error", err);
       }
     },
-    wrapScope(scope) {
+    async wrapScope(scope) {
       return scopeSpi(scope, this);
     },
     wrapConfig(cfg) {
@@ -77,6 +82,14 @@ export function runtimeFactory(options = {}) {
     },
     schema(spec) {
       return schemaSpi(spec, this);
+    },
+    openStore(type, key, config) {
+      let store = get(activeStores, type + key);
+      if (!store) {
+        store = this.createStore(type, key, config);
+        activeStores[type + key] = store;
+      }
+      return store;
     },
     createStore(type, key, config = {}) {
       if (type === "memory") {

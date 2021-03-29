@@ -11,11 +11,23 @@ class ActionError {
   }
 }
 
-export default function (runtime) {
+export default async function (runtime) {
   const _scope = {
     key: "security",
     stereotype: "scope",
-    store: runtime.createStore("memory", "security"),
+    store: await runtime.createStore("memory", "security"),
+    helpers: {
+      async verifyPassword(password, encrypted) {
+        // TODO: use bcrypt
+        return password === encrypted;
+      },
+      async jwtSign(sub, scope = "*") {
+        return JWT.sign({ scope, username: sub.username }, _scope.config.jwt.signkey, { audience: _scope.key, issuer: _scope.config.jwt.issuer, subject: sub.username, expiresIn: "7 days" });
+      },
+      extractTokenInfos(token) {
+        return JWT.verify(token, _scope.config.jwt.signkey, { audience: _scope.key, issuer: _scope.config.jwt.issuer });
+      },
+    },
     async executeInContext(action, data, fn, context, options = {}) {
       console.log("executing action in security scope");
 
@@ -27,20 +39,11 @@ export default function (runtime) {
         const draft = state.draft();
 
         // execute the fn, injecting all helpers and errors
-        const helpers = {
-          async verifyPassword(password, encrypted) {
-            // TODO: use bcrypt
-            return password === encrypted;
-          },
-          async jwtSign(sub, scope = "*") {
-            return JWT.sign({ scope, username: sub.username }, _scope.config.jwt.signkey, { audience: _scope.key, issuer: "lqsl.cloud", subject: sub.username, expiresIn: "7 days" });
-          },
-        };
         const errors = {
           ActionError,
         };
 
-        const result = await fn({ ...action, data }, draft, { helpers, errors });
+        const result = await fn({ ...action, data }, draft, { helpers: _scope.helpers, errors });
 
         // commit state if action is not read-only
         if (!options.readOnly) {
