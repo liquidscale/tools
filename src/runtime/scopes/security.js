@@ -1,4 +1,3 @@
-import { filter } from "rxjs/operators/index.js";
 import oh from "object-hash";
 import signinAction from "./security/signin.action.js";
 import JWT from "jsonwebtoken";
@@ -36,7 +35,8 @@ export default async function (runtime) {
         // TODO: check if all permissions are satisfied
 
         const state = await this.store.loadState(context);
-        const draft = state.draft();
+        console.log("security scope state", state);
+        const draft = await state.draft();
 
         // execute the fn, injecting all helpers and errors
         const errors = {
@@ -74,17 +74,16 @@ export default async function (runtime) {
       }
 
       const targetScope = await runtime.registry.findComponent({ stereotype: _scope.stereotype, key: _scope.key });
+      console.log("found security scope", targetScope);
       if (!targetScope) {
-        startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-          console.log("starting security scope");
+        console.log("starting security scope");
 
-          runtime.queries.subscribe(_scope.key, query => {
-            console.log("executing query on security scope", query);
-          });
-
-          // register our associated actions
-          signinAction(runtime);
+        runtime.queries.subscribe(_scope.key, query => {
+          console.log("executing query on security scope", query);
         });
+
+        // register our associated actions
+        signinAction(runtime);
         runtime.events.next({ key: "component:installed:new", component: _scope });
       } else {
         //TODO: apply new configuration to security instance

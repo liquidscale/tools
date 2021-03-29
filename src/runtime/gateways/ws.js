@@ -57,6 +57,7 @@ export default function (key, cfg, runtime) {
           runtime.queries.execute({ id: message.query, op: "close", context: { actor: null } });
         }
       } else if (message.action) {
+        console.log("executing action", message);
         const action = {
           ...message,
           context: {},

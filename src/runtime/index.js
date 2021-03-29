@@ -45,6 +45,7 @@ export function runtimeFactory(options = {}) {
     events,
     actions: {
       subscribe(pattern, observer) {
+        console.log("registering action handler", pattern);
         return actions.pipe(filter(action => matcher.isMatch(action.key, pattern))).subscribe(observer);
       },
       execute(action) {

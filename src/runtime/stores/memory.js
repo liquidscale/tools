@@ -54,8 +54,12 @@ export default async function (key, config, runtime) {
           ts: {
             type: "number",
           },
+          data: {
+            type: "object",
+          },
         },
         indexes: ["height"],
+        required: ["data", "height"],
       },
     },
   });
@@ -72,7 +76,7 @@ export default async function (key, config, runtime) {
   async function triggerSnapshot(height, data, { force = false } = {}) {
     const needSnapshot = force || (await heightSinceLastSnapshot()) >= snapshotTreshold;
     if (needSnapshot) {
-      console.log("producing a snapshot for store %s at height %d", key, height);
+      console.log("producing a snapshot for store %s at height %d", key, height, data);
       await storeState.snapshots.insert({ height, data, ts: new Date().getTime() });
     }
   }
@@ -84,6 +88,8 @@ export default async function (key, config, runtime) {
   };
 
   const stateFactory = async function ({ initialState = {}, height = 0, locale = "en" } = {}) {
+    console.log("constructing state for store ", key, initialState, height);
+
     const state = {
       height,
       locale,
@@ -120,6 +126,8 @@ export default async function (key, config, runtime) {
       .sort("height")
       .exec();
 
+    console.log("found snapshot", snapshot);
+
     const frameQuery = {};
     if (snapshot) {
       frameQuery.height = { $gt: snapshot.height, locale };
@@ -127,7 +135,9 @@ export default async function (key, config, runtime) {
       frameQuery.height = { $gte: height, locale };
     }
 
-    const data = snapshot ? snapshot.data || {} : initialState || {};
+    const data = snapshot ? snapshot.toJSON().data || {} : initialState || {};
+
+    console.log("last snapshot data", data);
 
     // retrieve all frames since snapshot (or 0)
     const frames = await storeState.frames.find({ selector: frameQuery }).sort("height").exec();
@@ -141,6 +151,8 @@ export default async function (key, config, runtime) {
       state.height = snapshot ? snapshot.height : height;
     }
 
+    console.log("producing state", state);
+
     return state;
   };
 
@@ -148,11 +160,13 @@ export default async function (key, config, runtime) {
     key,
     stereotype: "store",
     async initState(initialState) {
+      console.log("initializing store %s state", key, initialState);
+
       // create an initial snapshot
       if (initialState) {
-        await triggerSnapshot(0, initialState);
+        await triggerSnapshot(0, initialState, { force: true });
       }
-      return stateFactory({ initialState, height: 0 });
+      return stateFactory({ height: 0 });
     },
     async loadState(context) {
       return stateFactory(context);

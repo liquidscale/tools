@@ -36,7 +36,6 @@ export default function signinAction(runtime) {
       // generateCredentials effect
       async function generateCredentials({ data }, state, { helpers, errors }) {
         const { ActionError } = errors;
-
         const sub = state.users.find(u => u.username === data.username);
         if (sub) {
           // verify password
