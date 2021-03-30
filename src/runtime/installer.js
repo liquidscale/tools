@@ -22,7 +22,7 @@ export default function (runtime) {
         runtime.events.next({ key: "component:installed:updated", component: comp });
       }
     } catch (err) {
-      console.error("Unable to install component".red, { stereotype: component.stereotype, key: component.key });
+      console.error("Unable to install component".red, { stereotype: component.stereotype, key: component.key }, err);
     }
   });
 }

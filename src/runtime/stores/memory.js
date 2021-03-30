@@ -38,7 +38,7 @@ export default function (key, config, runtime) {
               type: "number",
             },
             patches: {
-              type: "object",
+              type: "array",
             },
           },
           indexes: ["height"],
@@ -139,9 +139,13 @@ export default function (key, config, runtime) {
 
     const frameQuery = {};
     if (snapshot) {
-      frameQuery.height = { $gt: snapshot.height, locale };
+      frameQuery.height = { $gt: snapshot.height };
     } else {
-      frameQuery.height = { $gte: height, locale };
+      frameQuery.height = { $gte: height };
+    }
+
+    if (locale) {
+      frameQuery.locale = locale;
     }
 
     const data = snapshot ? snapshot.toJSON().data || {} : initialState || config.initialState || {};

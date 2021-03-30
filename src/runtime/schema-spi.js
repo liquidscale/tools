@@ -9,7 +9,7 @@ export default function (schemaSpec, runtime) {
     spec = runtime.findComponent({ stereotype: "schema", key: schemaSpec });
   }
 
-  const ajv = new Ajv.default({ strict: false });
+  const ajv = new Ajv.default({ strict: false, strictSchema: false });
   const validate = ajv.compile(spec);
 
   return {

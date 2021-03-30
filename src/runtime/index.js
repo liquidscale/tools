@@ -74,14 +74,17 @@ export function runtimeFactory(options = {}) {
         console.error("runtime error", err);
       }
     },
-    wrapScope(scope, initialState) {
-      return scopeSpi(scope, this, initialState);
+    wrapScope(scope, initialState, cstor) {
+      return scopeSpi(scope, this, initialState, cstor);
     },
     wrapConfig(cfg) {
       return configSpi(cfg, this);
     },
     schema(spec) {
-      return schemaSpi(spec, this);
+      console.log("wrapping schema", spec);
+      if (spec) {
+        return schemaSpi(spec, this);
+      }
     },
     createStore(type, key, config = {}) {
       if (type === "memory") {
@@ -96,7 +99,10 @@ export function runtimeFactory(options = {}) {
       }
     },
     wrapSchema(spec) {
-      return schemaSpi(spec, this);
+      if (spec) {
+        console.log("wrapping schema", spec);
+        return schemaSpi(spec, this);
+      }
     },
     wrapAction(comp) {
       return actionSpi(comp.impl, this, comp);

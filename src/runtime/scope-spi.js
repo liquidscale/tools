@@ -2,7 +2,9 @@ import lodash from "lodash";
 
 const { isFunction } = lodash;
 
-export default async function (scope, runtime, initialState) {
+const queryTrackers = {};
+
+export default async function (scope, runtime, initialState, cstor) {
   console.log("wrapping spi scope".gray, scope, initialState);
   if (!scope.store) {
     console.log("initializing store for scope".gray, scope);
@@ -12,11 +14,14 @@ export default async function (scope, runtime, initialState) {
     scope.stereotype = "scope";
   }
 
-  return {
+  const _api = {
     key: scope.key,
     stereotype: scope.steteotype || "scope",
     helpers: scope.helpers || {},
     errors: runtime.errors,
+    store: scope.store,
+    config: runtime.wrapConfig(scope.config),
+    schema: runtime.wrapSchema(scope.schema),
     subscribe(subscriptionSpec) {
       console.log("subscribing scope %s to ", scope.key, subscriptionSpec);
       return {};
@@ -72,5 +77,54 @@ export default async function (scope, runtime, initialState) {
         return [null, err];
       }
     },
+    waitForQueries(pattern, { secure = true } = {}) {
+      return runtime.queries.subscribe(pattern, async query => {
+        if (secure && !query.context.actor) {
+          return query.channel.error({ message: "unauthorized", code: 401 });
+        }
+
+        try {
+          if (query.op === "open") {
+            console.log("executing query on %s scope", scope.key, query);
+
+            // handle dynamic scopes... loadScope if dynamic ?
+
+            // create subscription on this scope with the provided context and selector
+            const [queryTracker, error] = await this.queryInContext(query.expression, query.options, query.context);
+            if (queryTracker) {
+              // register subscription (query id, subscription)
+              console.log("tracker", queryTracker);
+              queryTrackers[query.id] = { queryTracker, subscription: queryTracker.results.subscribe(result => query.channel.emit(result)) };
+            } else {
+              throw error;
+            }
+          } else if (query.op === "snapshot") {
+            console.log("get query snapshot");
+
+            // handle dynamic scopes... loadScope if dynamic ?
+
+            const queryTracker = this.queryInContext(query.expression, query.options, query.context);
+            query.channel.emit(queryTracker.snapshot());
+            queryTracker.complete();
+          } else if (query.op === "close") {
+            console.log("closing query", query.id);
+            const { queryTracker, subscription } = queryTrackers[query.id];
+            if (subscription) {
+              subscription.unsubscribe();
+              queryTracker.complete();
+            }
+          }
+        } catch (err) {
+          console.error(err);
+          query.channel.error(err);
+        }
+      });
+    },
   };
+
+  if (isFunction(cstor)) {
+    return cstor(_api);
+  } else {
+    return _api;
+  }
 }

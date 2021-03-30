@@ -34,58 +34,48 @@ export default function (runtime) {
               _system.store = key;
             },
             async getComponent() {
-              return runtime.wrapScope(
-                _system,
-                {},
-                {
-                  getStatus() {
-                    return _system.status;
-                  },
-                  applyConfig(cfg) {
-                    _system.config = cfg;
-                  },
-                  async start() {
-                    console.log("starting system".cyan, _system.key);
-
-                    if (!_system.store) {
-                      _system.store = await runtime.createStore("memory", _system.key);
-                    }
-
-                    if (isString(_system.store)) {
-                      _system.store = await runtime.resolve({ stereotype: "store", key: _system.store });
-                    }
-
-                    try {
-                      _system.state = await _system.store.initState({});
-                    } catch (err) {
-                      console.error("unable to resolve store %s: %s".red, _system.store.key, err.message);
-                    }
-
-                    // Run all initializers to build initial state
-                    const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
-                    if (initializers.length > 0) {
-                      const draft = _system.state.draft();
-                      try {
-                        const context = { scope: await runtime.wrapScope(_system), config: runtime.wrapConfig(_system.config), schema: runtime.wrapSchema(_system.schema) };
-                        initializers.map(initializer => initializer(draft, context));
-                        _system.state.commit(draft);
-                      } catch (err) {
-                        _system.state.rollback(draft);
-                      }
-                    }
-
-                    // publish all our publications
-                    runtime.publishAll(_system.publications);
-                    runtime.subscribeAll(_system.subscriptions);
-                    runtime.queries.subscribe(_system.key, function (query) {
-                      console.log("executing query on system scope %s", _system.key, query);
-                    });
-
-                    _system.status = "active";
-                    console.log("system %s successfully started".green, _system.key);
-                  },
+              return runtime.wrapScope(_system, {}, async scope => {
+                console.log("initializing wrapped scope".cyan, scope);
+                if (!_system.store) {
+                  console.log("no configured scope, let's create a simple memory store");
+                  scope.store = runtime.createStore("memory", _system.key);
                 }
-              );
+
+                if (isString(_system.store)) {
+                  console.log("resolving store %s", _system.store);
+                  scope.store = await runtime.resolve({ stereotype: "store", key: _system.store });
+                  console.log("scope %s store was successfully resolved".green, scope.store);
+                }
+
+                // Run all initializers to build initial state
+                const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
+                if (initializers.length > 0) {
+                  const state = await scope.store.loadState();
+                  console.log("initializing state", state);
+                  const draft = state.draft();
+                  try {
+                    const context = { scope, config: scope.config, schema: scope.schema };
+                    initializers.map(initializer => initializer(draft, context));
+                    state.commit(draft);
+                  } catch (err) {
+                    console.log("unable to initialize system %s".red, _system.key, err);
+                    state.rollback(draft);
+                  }
+                }
+
+                // publish all our publications
+                // runtime.publishAll(_system.publications);
+                // runtime.subscribeAll(_system.subscriptions);
+
+                scope.waitForQueries(_system.key);
+
+                // Add extra methods for system scopes
+                scope.getStatus = () => _system.status;
+
+                _system.status = "active";
+                console.log("system %s successfully started".green, scope.key);
+                return scope;
+              });
             },
           };
         },

@@ -40,6 +40,8 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
         snapshot() {
           let snapshot = null;
 
+          if (!this.cached) return;
+
           if (this.selector) {
             console.log("applying selector on data", this.selector, snapshot, this.cached);
             snapshot = jp.query(this.cached, this.selector);
@@ -56,8 +58,17 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
       };
 
       const stream = publisher.subscribe(frames => {
-        this.cached = frames.reduce((data, frame) => applyPatches(data, frame.patches), this.cached);
-        queryResultTracker.results.next(queryResultTracker.snapshot());
+        console.log("received new results for query ", queryResultTracker.selector, queryResultTracker.query, frames);
+        if (frames.length > 0) {
+          console.log("processing new frames", frames);
+          queryResultTracker.cached = frames.reduce((data, frame) => {
+            console.log("applying patches from frame", frame.patches);
+            return applyPatches(data, frame.patches);
+          }, queryResultTracker.cached);
+          queryResultTracker.results.next(queryResultTracker.snapshot());
+        } else {
+          console.log("nothing new here...");
+        }
       });
 
       queryResultTracker.complete = function () {
