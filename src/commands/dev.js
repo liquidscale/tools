@@ -28,7 +28,7 @@ export default function () {
     console.log("launching virtual cluster...".cyan);
     runtimeFactory()
       .bundle("filesystem", { root: process.cwd(), name: args.name, version: args.version })
-      .deploy({ watch: false })
+      .deploy({ watch: true })
       .subscribe(
         bundle => {
           console.log("received bundle", bundle);
