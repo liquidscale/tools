@@ -4,22 +4,32 @@ import lodash from "lodash";
 import { Subject } from "rxjs";
 import { applyPatches } from "immer";
 
-const { isFunction } = lodash;
+const { isFunction, flatten } = lodash;
 
 export function queryBuilder(data, publisher, { selector, query } = {}) {
+  console.log("query-build", data);
   return {
     selector(expr) {
       if (expr) {
+        console.log("selecting specific state branch", expr);
         const result = jp.query(data, expr);
         console.log("selected data", result);
-        return queryBuilder(result, publisher, { selector: expr, query });
+        if (result) {
+          return queryBuilder(result[0], publisher, { selector: expr, query });
+        } else {
+          return queryBuilder(null, publisher, { selector: expr, query });
+        }
       }
       return this;
     },
     query(expression, { sort, limit, skip } = {}) {
-      const result = new Query(data).find(expression, { sort, limit, skip }).get();
-      console.log("executed query", result);
-      return queryBuilder(result, publisher, { selector, query: { expression, options: { sort, limit, skip } } });
+      if (expression && Object.keys(expression).length > 0) {
+        console.log("filtering data", expression);
+        const result = new Query(data).find(expression, { sort, limit, skip }).get();
+        return queryBuilder(result, publisher, { selector, query: { expression, options: { sort, limit, skip } } });
+      } else {
+        return this;
+      }
     },
     track(configurer) {
       let queryResultTracker = {
@@ -31,13 +41,16 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
           let snapshot = null;
 
           if (this.selector) {
+            console.log("applying selector on data", this.selector, snapshot, this.cached);
             snapshot = jp.query(this.cached, this.selector);
           }
 
           if (this.query) {
+            console.log("applying query on data", this.query, snapshot, this.cached);
             snapshot = new Query(snapshot || this.cached).find(this.query.expression, this.query.options).get();
           }
 
+          console.log("produced data snapshot", snapshot);
           return snapshot;
         },
       };

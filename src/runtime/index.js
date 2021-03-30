@@ -75,8 +75,8 @@ export function runtimeFactory(options = {}) {
         console.error("runtime error", err);
       }
     },
-    async wrapScope(scope) {
-      return scopeSpi(scope, this);
+    wrapScope(scope, initialState, api = {}) {
+      return scopeSpi(Object.assign(scope, api), this, initialState);
     },
     wrapConfig(cfg) {
       return configSpi(cfg, this);
@@ -84,17 +84,23 @@ export function runtimeFactory(options = {}) {
     schema(spec) {
       return schemaSpi(spec, this);
     },
-    openStore(type, key, config) {
+    async openStore(type, key, config) {
       let store = get(activeStores, type + key);
       if (!store) {
-        store = this.createStore(type, key, config);
+        console.log("store %s:%s not found. create it with config", type, key, config);
+        store = await this.createStore(type, key, config);
         activeStores[type + key] = store;
       }
       return store;
     },
-    createStore(type, key, config = {}) {
+    async createStore(type, key, config = {}) {
       if (type === "memory") {
-        return memoryStore(key, config, this);
+        const store = await memoryStore(key, config, this);
+        if (config.initialState) {
+          console.log(store);
+          await store.initState(config.initialState);
+        }
+        return store;
       } else {
         return null;
       }

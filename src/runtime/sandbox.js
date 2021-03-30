@@ -33,57 +33,59 @@ export default function (runtime) {
             store(key) {
               _system.store = key;
             },
-            getComponent() {
-              return {
-                key: this.key,
-                getStatus() {
-                  return _system.status;
-                },
-                stereotype: this.stereotype,
-                applyConfig(cfg) {
-                  _system.config = cfg;
-                },
-                async start() {
-                  console.log("starting system".cyan, _system.key);
+            async getComponent() {
+              return runtime.wrapScope(
+                _system,
+                {},
+                {
+                  getStatus() {
+                    return _system.status;
+                  },
+                  applyConfig(cfg) {
+                    _system.config = cfg;
+                  },
+                  async start() {
+                    console.log("starting system".cyan, _system.key);
 
-                  if (!_system.store) {
-                    _system.store = await runtime.createStore("memory", _system.key);
-                  }
-
-                  if (isString(_system.store)) {
-                    _system.store = await runtime.resolve({ stereotype: "store", key: _system.store });
-                  }
-
-                  try {
-                    _system.state = await _system.store.initState({});
-                  } catch (err) {
-                    console.error("unable to resolve store %s: %s".red, _system.store.key, err.message);
-                  }
-
-                  // Run all initializers to build initial state
-                  const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
-                  if (initializers.length > 0) {
-                    const draft = _system.state.draft();
-                    try {
-                      const context = { scope: await runtime.wrapScope(_system), config: runtime.wrapConfig(_system.config), schema: runtime.wrapSchema(_system.schema) };
-                      initializers.map(initializer => initializer(draft, context));
-                      _system.state.commit(draft);
-                    } catch (err) {
-                      _system.state.rollback(draft);
+                    if (!_system.store) {
+                      _system.store = await runtime.createStore("memory", _system.key);
                     }
-                  }
 
-                  // publish all our publications
-                  runtime.publishAll(_system.publications);
-                  runtime.subscribeAll(_system.subscriptions);
-                  runtime.queries.subscribe(_system.key, function (query) {
-                    console.log("executing query on system scope %s", _system.key, query);
-                  });
+                    if (isString(_system.store)) {
+                      _system.store = await runtime.resolve({ stereotype: "store", key: _system.store });
+                    }
 
-                  _system.status = "active";
-                  console.log("system %s successfully started".green, _system.key);
-                },
-              };
+                    try {
+                      _system.state = await _system.store.initState({});
+                    } catch (err) {
+                      console.error("unable to resolve store %s: %s".red, _system.store.key, err.message);
+                    }
+
+                    // Run all initializers to build initial state
+                    const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
+                    if (initializers.length > 0) {
+                      const draft = _system.state.draft();
+                      try {
+                        const context = { scope: await runtime.wrapScope(_system), config: runtime.wrapConfig(_system.config), schema: runtime.wrapSchema(_system.schema) };
+                        initializers.map(initializer => initializer(draft, context));
+                        _system.state.commit(draft);
+                      } catch (err) {
+                        _system.state.rollback(draft);
+                      }
+                    }
+
+                    // publish all our publications
+                    runtime.publishAll(_system.publications);
+                    runtime.subscribeAll(_system.subscriptions);
+                    runtime.queries.subscribe(_system.key, function (query) {
+                      console.log("executing query on system scope %s", _system.key, query);
+                    });
+
+                    _system.status = "active";
+                    console.log("system %s successfully started".green, _system.key);
+                  },
+                }
+              );
             },
           };
         },

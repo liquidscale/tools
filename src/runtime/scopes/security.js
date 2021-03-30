@@ -14,7 +14,7 @@ export default async function (runtime) {
   const _scope = {
     key: "security",
     stereotype: "scope",
-    store: await runtime.createStore("memory", "security"),
+    store: await runtime.openStore("memory", "security"),
     helpers: {
       async verifyPassword(password, encrypted) {
         // TODO: use bcrypt
@@ -66,6 +66,7 @@ export default async function (runtime) {
       console.log("configuring security scope", cfg.security || {});
 
       // initializing scope state with our new config
+      console.log("scope", _scope);
       await _scope.store.initState(get(cfg.security, "state") || {});
       _scope.config = cfg.security;
 
@@ -84,6 +85,7 @@ export default async function (runtime) {
 
         // register our associated actions
         signinAction(runtime);
+
         runtime.events.next({ key: "component:installed:new", component: _scope });
       } else {
         //TODO: apply new configuration to security instance

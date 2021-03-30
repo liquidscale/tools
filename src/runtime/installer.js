@@ -1,7 +1,7 @@
 import { filter } from "rxjs/operators/index.js";
 
 export default function (runtime) {
-  runtime.events.pipe(filter(event => event.key === "component:compiled")).subscribe(({ component, from }) => {
+  runtime.events.pipe(filter(event => event.key === "component:compiled")).subscribe(async ({ component, from }) => {
     let comp = null;
     try {
       switch (component.stereotype) {
@@ -9,7 +9,7 @@ export default function (runtime) {
           comp = runtime.wrapAction(component);
           break;
         case "system":
-          comp = component.impl.getComponent();
+          comp = await component.impl.getComponent();
           break;
         default:
           comp = component;

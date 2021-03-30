@@ -12,6 +12,7 @@ enablePatches();
 enableMapSet();
 
 export default async function (key, config, runtime) {
+  console.log("initializing memory store", key, config);
   const snapshotTreshold = get(config, "snapshotTreshold") || 50;
 
   const DB = await createRxDatabase({
@@ -88,7 +89,7 @@ export default async function (key, config, runtime) {
   };
 
   const stateFactory = async function ({ initialState = {}, height = 0, locale = "en" } = {}) {
-    console.log("constructing state for store ", key, initialState, height);
+    console.log("constructing state for store ", key, initialState || config.initialState, height);
 
     const state = {
       height,
@@ -126,8 +127,6 @@ export default async function (key, config, runtime) {
       .sort("height")
       .exec();
 
-    console.log("found snapshot", snapshot);
-
     const frameQuery = {};
     if (snapshot) {
       frameQuery.height = { $gt: snapshot.height, locale };
@@ -135,7 +134,7 @@ export default async function (key, config, runtime) {
       frameQuery.height = { $gte: height, locale };
     }
 
-    const data = snapshot ? snapshot.toJSON().data || {} : initialState || {};
+    const data = snapshot ? snapshot.toJSON().data || {} : initialState || config.initialState || {};
 
     console.log("last snapshot data", data);
 
@@ -151,7 +150,7 @@ export default async function (key, config, runtime) {
       state.height = snapshot ? snapshot.height : height;
     }
 
-    console.log("producing state", state);
+    console.log("producing state for store %s", key, state);
 
     return state;
   };
@@ -160,11 +159,11 @@ export default async function (key, config, runtime) {
     key,
     stereotype: "store",
     async initState(initialState) {
-      console.log("initializing store %s state", key, initialState);
+      console.log("initializing store %s state", key, initialState, config.initialState);
 
       // create an initial snapshot
-      if (initialState) {
-        await triggerSnapshot(0, initialState, { force: true });
+      if (initialState || config.initialState) {
+        await triggerSnapshot(0, initialState || config.initialState, { force: true });
       }
       return stateFactory({ height: 0 });
     },

@@ -1,6 +1,8 @@
-export default async function (scope, runtime) {
+export default async function (scope, runtime, initialState) {
+  console.log("wrapping spi scope", scope, initialState);
   if (!scope.store) {
-    scope.store = await runtime.openStore("memory", scope.key);
+    console.log("initializing store for scope", scope);
+    scope.store = await runtime.openStore("memory", scope.key, { initialState });
   }
   if (!scope.stereotype) {
     scope.stereotype = "scope";

@@ -31,18 +31,31 @@ export default function (key, cfg, runtime) {
 
       if (message.query) {
         if (message.op === "open") {
+          message.options = message.options || {};
+
           const query = {
             id: message.query,
             op: "open",
             scope: message.scope,
             expression: message.expression,
-            options: message.options,
+            options: {
+              selector: message.options.selector || "$",
+              single: message.options.single || false,
+              offset: message.options.offset || 0,
+              limit: message.options.limit || 1000,
+            },
             context: {
               actor: get(message.tokenInfo, "username"),
               permissions: get(message.tokenInfo, "scope"),
             },
             channel: {
               emit(data, type = "result") {
+                if (query.options.single) {
+                  console.log("producing single result", data);
+                  if (Array.isArray(data)) {
+                    return ws.send(JSON.stringify({ sid: query.id, type, data: data[0] }));
+                  }
+                }
                 ws.send(JSON.stringify({ sid: query.id, type, data }));
               },
               error(error) {
@@ -57,7 +70,6 @@ export default function (key, cfg, runtime) {
           runtime.queries.execute({ id: message.query, op: "close", context: { actor: null } });
         }
       } else if (message.action) {
-        console.log("executing action", message);
         const action = {
           ...message,
           context: {},
