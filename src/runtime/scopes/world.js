@@ -5,7 +5,6 @@ export default function (runtime) {
   const _world = {
     key: "world",
     stereotype: "scope",
-    impl: {},
   };
 
   let startSubscription = null;
@@ -21,9 +20,7 @@ export default function (runtime) {
 
       const world = await runtime.registry.findComponent({ stereotype: "scope", key: "world" });
       if (!world) {
-        startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-          console.log("starting world scope");
-        });
+        console.log("starting world scope");
         runtime.events.next({ key: "component:installed:new", component: _world });
       } else {
         //TODO: apply new configuration to world instance

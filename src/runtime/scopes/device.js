@@ -21,9 +21,7 @@ export default function (runtime) {
 
       const targetScope = await runtime.registry.findComponent({ stereotype: _scope.stereotype, key: _scope.key });
       if (!targetScope) {
-        startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-          console.log("starting device scope");
-        });
+        console.log("starting device scope");
         runtime.events.next({ key: "component:installed:new", component: _scope });
       } else {
         //TODO: apply new configuration to organization instance

@@ -93,14 +93,12 @@ export default function (key, cfg, runtime) {
     });
   });
 
-  runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-    console.log("starting websocket gateway on port", port);
-    app.listen(port, function (err) {
-      if (err) {
-        return console.error(err);
-      }
-      console.log("gateway %s listening on port", key, port);
-    });
+  console.log("starting websocket gateway on port", port);
+  app.listen(port, function (err) {
+    if (err) {
+      return console.error(err);
+    }
+    console.log("gateway %s listening on port", key, port);
   });
 
   return {

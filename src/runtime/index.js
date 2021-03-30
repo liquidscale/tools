@@ -165,19 +165,9 @@ export function runtimeFactory(options = {}) {
     subscribe(key, subscriber) {
       return events.pipe(filter(event => event.key === key)).subscribe(subscriber);
     },
-    start() {
-      console.log("starting runtime", spi.id);
-      setTimeout(function () {
-        events.next({ key: "runtime:start" });
-      }, 100);
-    },
-    stop() {
-      console.log("stopping runtime", spi.id);
-      events.next({ key: "runtime:stop" });
-    },
-    deploymentBundle(type) {
+    bundle(type, config) {
       if (type === "filesystem") {
-        return fileSystemBundle(spi);
+        return fileSystemBundle(spi, config);
       } else {
         throw new Error("unsupported bundle type:" + type);
       }
