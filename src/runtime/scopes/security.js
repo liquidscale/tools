@@ -1,98 +1,51 @@
-import oh from "object-hash";
 import signinAction from "./security/signin.action.js";
 import JWT from "jsonwebtoken";
-import lodash from "lodash";
-
-const { get } = lodash;
-class ActionError {
-  constructor(spec) {
-    Object.assign(this, spec);
-  }
-}
 
 export default async function (runtime) {
-  const _scope = {
-    key: "security",
-    stereotype: "scope",
-    store: await runtime.openStore("memory", "security"),
-    helpers: {
+  runtime.config.keyChanged("scopes.security").subscribe(async cfg => {
+    console.log("configuring security scope", cfg || {});
+
+    const helpers = {
       async verifyPassword(password, encrypted) {
         // TODO: use bcrypt
         return password === encrypted;
       },
       async jwtSign(sub, scope = "*") {
-        return JWT.sign({ scope, username: sub.username }, _scope.config.jwt.signkey, { audience: _scope.key, issuer: _scope.config.jwt.issuer, subject: sub.username, expiresIn: "7 days" });
+        return JWT.sign({ scope, username: sub.username }, cfg.jwt.signkey, {
+          audience: cfg.jwt.audience || "security",
+          issuer: cfg.jwt.issuer,
+          subject: sub.username,
+          expiresIn: cfg.jwt.duration || "7 days",
+        });
       },
       extractTokenInfos(token) {
-        return JWT.verify(token, _scope.config.jwt.signkey, { audience: _scope.key, issuer: _scope.config.jwt.issuer });
+        return JWT.verify(token, cfg.jwt.signkey, { audience: cfg.jwt.audience || "security", issuer: cfg.jwt.issuer });
       },
-    },
-    async executeInContext(action, data, fn, context, options = {}) {
-      console.log("executing action in security scope");
+    };
 
-      try {
-        // TODO: check if action is supported
-        // TODO: check if all permissions are satisfied
+    let eventKey = "component:installed:";
+    let securityScope = await runtime.registry.findComponent({ stereotype: "scope", key: "security" });
+    if (!securityScope) {
+      console.log("installing security scope");
+      eventKey += "new";
+      securityScope = await runtime.wrapScope({
+        key: "security",
+        store: runtime.createStore("memory", "security", cfg.store),
+        helpers,
+      });
+      await securityScope.applyConfig(cfg);
 
-        const state = await this.store.loadState(context);
-        console.log("security scope state", state);
-        const draft = await state.draft();
+      runtime.queries.subscribe(securityScope.key, query => {
+        console.log("executing query on security scope", query);
+      });
 
-        // execute the fn, injecting all helpers and errors
-        const errors = {
-          ActionError,
-        };
-
-        const result = await fn({ ...action, data }, draft, { helpers: _scope.helpers, errors });
-
-        // commit state if action is not read-only
-        if (!options.readOnly) {
-          state.commit(draft);
-        }
-
-        return [result, null];
-      } catch (err) {
-        return [null, err];
-      }
-    },
-  };
-
-  let startSubscription = null;
-  let prevHash = null;
-
-  runtime.config.changes.subscribe(async cfg => {
-    const newHash = oh(cfg.security || {});
-    if (prevHash !== newHash) {
-      console.log("configuring security scope", cfg.security || {});
-
-      // initializing scope state with our new config
-      console.log("scope", _scope);
-      await _scope.store.initState(get(cfg.security, "state") || {});
-      _scope.config = cfg.security;
-
-      if (startSubscription) {
-        startSubscription.unsubscribe();
-      }
-
-      const targetScope = await runtime.registry.findComponent({ stereotype: _scope.stereotype, key: _scope.key });
-      console.log("found security scope", targetScope);
-      if (!targetScope) {
-        console.log("starting security scope");
-
-        runtime.queries.subscribe(_scope.key, query => {
-          console.log("executing query on security scope", query);
-        });
-
-        // register our associated actions
-        signinAction(runtime);
-
-        runtime.events.next({ key: "component:installed:new", component: _scope });
-      } else {
-        //TODO: apply new configuration to security instance
-        runtime.events.next({ key: "component:installed:updated", component: _scope });
-      }
-
-      prevHash = newHash;
+      // register our associated actions
+      signinAction(runtime);
+    } else {
+      console.log("updating security scope");
+      eventKey += "updated";
+      await securityScope.applyConfig(cfg);
     }
+    runtime.events.next({ key: eventKey, component: securityScope });
   });
 }

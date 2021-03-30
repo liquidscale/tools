@@ -3,6 +3,8 @@ import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet } f
 import memoryAdapter from "pouchdb-adapter-memory";
 import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
+import Observable from "rxjs";
+import { switchMap } from "rxjs/operators/index.js";
 
 const { createRxDatabase, addRxPlugin } = rxdb;
 const { last, get } = lodash;
@@ -11,61 +13,65 @@ addRxPlugin(memoryAdapter);
 enablePatches();
 enableMapSet();
 
-export default async function (key, config, runtime) {
-  console.log("initializing memory store", key, config);
+export default function (key, config, runtime) {
+  console.log("initializing memory store %s".gray, key, config);
   const snapshotTreshold = get(config, "snapshotTreshold") || 50;
 
-  const DB = await createRxDatabase({
+  const DB = createRxDatabase({
     name: key,
     adapter: "memory",
   });
 
-  const storeState = await DB.addCollections({
-    frames: {
-      schema: {
-        title: "store frame",
-        version: 0,
-        type: "object",
-        properties: {
-          height: {
-            type: "number",
+  const Collections = (async function () {
+    const db = await DB;
+    return db.addCollections({
+      frames: {
+        schema: {
+          title: "store frame",
+          version: 0,
+          type: "object",
+          properties: {
+            height: {
+              type: "number",
+            },
+            ts: {
+              type: "number",
+            },
+            patches: {
+              type: "object",
+            },
           },
-          ts: {
-            type: "number",
-          },
-          patches: {
-            type: "object",
-          },
+          indexes: ["height"],
         },
-        indexes: ["height"],
       },
-    },
-    snapshots: {
-      schema: {
-        title: "store snapshots",
-        version: 0,
-        type: "object",
-        properties: {
-          height: {
-            type: "number",
+      snapshots: {
+        schema: {
+          title: "store snapshots",
+          version: 0,
+          type: "object",
+          properties: {
+            height: {
+              type: "number",
+            },
+            state: {
+              type: "object",
+            },
+            ts: {
+              type: "number",
+            },
+            data: {
+              type: "object",
+            },
           },
-          state: {
-            type: "object",
-          },
-          ts: {
-            type: "number",
-          },
-          data: {
-            type: "object",
-          },
+          indexes: ["height"],
+          required: ["data", "height"],
         },
-        indexes: ["height"],
-        required: ["data", "height"],
       },
-    },
-  });
+    });
+  })();
 
   async function heightSinceLastSnapshot() {
+    const storeState = await Collections;
     const snapshot = await storeState.snapshots.findOne({ selector: {} }).sort({ height: -1 }).exec();
     let query = {};
     if (snapshot) {
@@ -75,26 +81,30 @@ export default async function (key, config, runtime) {
   }
 
   async function triggerSnapshot(height, data, { force = false } = {}) {
+    const storeState = await Collections;
     const needSnapshot = force || (await heightSinceLastSnapshot()) >= snapshotTreshold;
     if (needSnapshot) {
-      console.log("producing a snapshot for store %s at height %d", key, height, data);
+      console.log("producing a snapshot for store %s at height %d".cyan, key, height);
       await storeState.snapshots.insert({ height, data, ts: new Date().getTime() });
     }
   }
 
   const publisher = {
     subscribe(observer) {
-      return storeState.frames.find().$.subscribe(observer);
+      return Observable.defer(() => Collections)
+        .pipe(switchMap(storeState => storeState.frames.find().$))
+        .subscribe(observer);
     },
   };
 
   const stateFactory = async function ({ initialState = {}, height = 0, locale = "en" } = {}) {
-    console.log("constructing state for store ", key, initialState || config.initialState, height);
+    console.log("constructing state for store %s".gray, key, initialState || config.initialState, height);
+    const storeState = await Collections;
 
     const state = {
       height,
       locale,
-      async draft() {
+      draft() {
         return createDraft(this.data);
       },
       commit(draft) {
@@ -136,13 +146,11 @@ export default async function (key, config, runtime) {
 
     const data = snapshot ? snapshot.toJSON().data || {} : initialState || config.initialState || {};
 
-    console.log("last snapshot data", data);
-
     // retrieve all frames since snapshot (or 0)
     const frames = await storeState.frames.find({ selector: frameQuery }).sort("height").exec();
+    console.log("applying additional frames", frames);
 
     if (frames.length > 0) {
-      console.log("applying frames", frames);
       state.data = frames.reduce((state, frame) => applyPatches(state, frame.patches), data);
       state.height = last(frames).height;
     } else {
@@ -150,16 +158,15 @@ export default async function (key, config, runtime) {
       state.height = snapshot ? snapshot.height : height;
     }
 
-    console.log("producing state for store %s", key, state);
-
     return state;
   };
 
   return {
     key,
+    type: "memory",
     stereotype: "store",
     async initState(initialState) {
-      console.log("initializing store %s state", key, initialState, config.initialState);
+      console.log("initializing store %s state", key, initialState || config.initialState);
 
       // create an initial snapshot
       if (initialState || config.initialState) {
@@ -169,6 +176,9 @@ export default async function (key, config, runtime) {
     },
     async loadState(context) {
       return stateFactory(context);
+    },
+    applyConfig(cfg) {
+      console.log("applying new config to store memory:", key, cfg);
     },
   };
 }

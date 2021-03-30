@@ -28,21 +28,20 @@ import user from "./scopes/user.js";
 import device from "./scopes/device.js";
 import matcher from "matcher";
 import memoryStore from "./stores/memory.js";
-import lodash from "lodash";
-
-const { get } = lodash;
+import errors from "./errors.js";
 
 export function runtimeFactory(options = {}) {
+  console.log("instantiating runtime ".green);
+
   // This is the internal api of the runtime instance.
   const events = new Subject();
   const actions = new Subject();
   const queries = new Subject();
 
-  const activeStores = {};
-
   const spi = {
     id: shortid.generate(),
     events,
+    errors,
     actions: {
       subscribe(pattern, observer) {
         console.log("registering action handler", pattern);
@@ -75,8 +74,8 @@ export function runtimeFactory(options = {}) {
         console.error("runtime error", err);
       }
     },
-    wrapScope(scope, initialState, api = {}) {
-      return scopeSpi(Object.assign(scope, api), this, initialState);
+    wrapScope(scope, initialState) {
+      return scopeSpi(scope, this, initialState);
     },
     wrapConfig(cfg) {
       return configSpi(cfg, this);
@@ -84,21 +83,12 @@ export function runtimeFactory(options = {}) {
     schema(spec) {
       return schemaSpi(spec, this);
     },
-    async openStore(type, key, config) {
-      let store = get(activeStores, type + key);
-      if (!store) {
-        console.log("store %s:%s not found. create it with config", type, key, config);
-        store = await this.createStore(type, key, config);
-        activeStores[type + key] = store;
-      }
-      return store;
-    },
-    async createStore(type, key, config = {}) {
+    createStore(type, key, config = {}) {
       if (type === "memory") {
-        const store = await memoryStore(key, config, this);
+        const store = memoryStore(key, config, this);
         if (config.initialState) {
-          console.log(store);
-          await store.initState(config.initialState);
+          console.log("initializing store state", key, config.initialState);
+          store.initState(config.initialState);
         }
         return store;
       } else {
@@ -165,19 +155,9 @@ export function runtimeFactory(options = {}) {
     subscribe(key, subscriber) {
       return events.pipe(filter(event => event.key === key)).subscribe(subscriber);
     },
-    start() {
-      console.log("starting runtime", spi.id);
-      setTimeout(function () {
-        events.next({ key: "runtime:start" });
-      }, 100);
-    },
-    stop() {
-      console.log("stopping runtime", spi.id);
-      events.next({ key: "runtime:stop" });
-    },
-    deploymentBundle(type) {
+    bundle(type, config) {
       if (type === "filesystem") {
-        return fileSystemBundle(spi);
+        return fileSystemBundle(spi, config);
       } else {
         throw new Error("unsupported bundle type:" + type);
       }

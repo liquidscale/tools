@@ -1,36 +1,25 @@
-import { filter } from "rxjs/operators/index.js";
-import oh from "object-hash";
-
 export default function (runtime) {
-  const _scope = {
-    key: "device/$id",
-    stereotype: "scope",
-    impl: {},
-  };
-
-  let startSubscription = null;
-  let prevHash = null;
-
-  runtime.config.changes.subscribe(async cfg => {
-    const newHash = oh(cfg.device || {});
-    if (prevHash !== newHash) {
-      console.log("configuring device scope", cfg.user || {});
-      if (startSubscription) {
-        startSubscription.unsubscribe();
-      }
-
-      const targetScope = await runtime.registry.findComponent({ stereotype: _scope.stereotype, key: _scope.key });
-      if (!targetScope) {
-        startSubscription = runtime.events.pipe(filter(event => event.key === "runtime:start")).subscribe(() => {
-          console.log("starting device scope");
-        });
-        runtime.events.next({ key: "component:installed:new", component: _scope });
-      } else {
-        //TODO: apply new configuration to organization instance
-        runtime.events.next({ key: "component:installed:updated", component: _scope });
-      }
-
-      prevHash = newHash;
+  runtime.config.keyChanged("scopes.device").subscribe(async cfg => {
+    let eventKey = "component:installed:";
+    let device = await runtime.registry.findComponent({ stereotype: "scope", key: "device" });
+    if (!device) {
+      console.log("installing device scope".cyan);
+      device = await runtime.wrapScope({
+        key: "device",
+        stereotype: "scope",
+      });
+      eventKey + "new";
+    } else {
+      console.log("updating device scope".cyan);
+      eventKey + "updated";
     }
+
+    await device.applyConfig(cfg);
+
+    // configure all supported actions
+
+    // mount all named queries
+
+    runtime.events.next({ key: eventKey, component: device });
   });
 }

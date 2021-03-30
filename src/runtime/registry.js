@@ -38,6 +38,10 @@ export default function (runtime) {
       match &= query.stereotype === component.stereotype;
     }
 
+    if (query.type) {
+      match &= query.type === component.type;
+    }
+
     if (match && query.key) {
       // If matchdynamic key?
       if (matchDynamicKey) {
@@ -52,8 +56,9 @@ export default function (runtime) {
   };
 
   return {
-    addComponent(comp) {
-      components.push(comp);
+    addComponent(component) {
+      console.log("registering %s %s".gray, component.stereotype, component.key);
+      components.push(component);
     },
     components() {
       return Observable.of(components);

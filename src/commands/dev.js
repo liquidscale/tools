@@ -26,17 +26,17 @@ import { runtimeFactory } from "../runtime/index.js";
 export default function () {
   return async function (args) {
     console.log("launching virtual cluster...".cyan);
+    runtimeFactory()
+      .bundle("filesystem", { root: process.cwd(), name: args.name, version: args.version })
+      .deploy({ watch: true })
+      .subscribe(
+        bundle => {
+          console.log("received bundle", bundle);
 
-    const runtime = runtimeFactory();
-
-    console.log("deploy this as a deployment unit in our runtime. We keep watching files in order for our changes to be detected and automatically applied");
-    const bundle = runtime.deploymentBundle("filesystem")(process.cwd(), { watch: true });
-    console.log("deployed bundle %s to runtime %s", bundle.id, runtime.id);
-
-    runtime.subscribe("bundle:ready", async function (event) {
-      if (bundle.id === event.bundle.id) {
-        await runtime.start({ monitoring: ["debug", "unit", "smoke"] });
-      }
-    });
+          // monitor bundle activity through bundle.events
+        },
+        error => console.error(error.message.red),
+        () => console.log("bundle is deployed".green)
+      );
   };
 }
