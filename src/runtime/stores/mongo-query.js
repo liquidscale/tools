@@ -207,7 +207,7 @@ const Faltu = function (data) {
       current = [];
 
       _temp.forEach(function (record, index) {
-        if (fn.call(this, record, index) === true) {
+        if (fn.call(this, record, index)) {
           current.push(record);
         }
       });

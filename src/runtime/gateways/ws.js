@@ -37,12 +37,13 @@ export default function (key, cfg, runtime) {
             id: message.query,
             op: "open",
             scope: message.scope,
+            selector: message.selector || "$",
             expression: message.expression,
             options: {
-              selector: message.options.selector || "$",
               single: message.options.single || false,
               offset: message.options.offset || 0,
               limit: message.options.limit || 1000,
+              sort: message.options.sort,
             },
             context: {
               actor: get(message.tokenInfo, "username"),

@@ -19,9 +19,9 @@ export default async function (scope, runtime, initialState, cstor) {
     stereotype: scope.steteotype || "scope",
     helpers: scope.helpers || {},
     errors: runtime.errors,
-    store: scope.store,
     config: runtime.wrapConfig(scope.config),
     schema: runtime.wrapSchema(scope.schema),
+    store: scope.store,
     subscribe(subscriptionSpec) {
       console.log("subscribing scope %s to ", scope.key, subscriptionSpec);
       return {};
@@ -37,7 +37,8 @@ export default async function (scope, runtime, initialState, cstor) {
     async queryInContext(expression, options, context) {
       console.log("executing query ", expression, options, context);
       try {
-        const state = await scope.store.loadState(context);
+        const state = await this.store.loadState(context);
+        console.log("execute query on data", expression, state, context);
 
         // apply selector
         return [
@@ -55,17 +56,17 @@ export default async function (scope, runtime, initialState, cstor) {
       }
     },
     async executeInContext(action, data, fn, context, options = {}) {
-      console.log("executing action in scope %s", scope.key);
+      console.log("executing action in scope %s", this.key);
 
       try {
         // TODO: check if action is supported
         // TODO: check if all permissions are satisfied
 
-        const state = await scope.store.loadState(context);
+        const state = await this.store.loadState(context);
         const draft = state.draft();
 
         // execute the fn, injecting all helpers and errors
-        const result = await fn({ ...action, data }, draft, { helpers: scope.helpers, errors: runtime.errors });
+        const result = await fn({ ...action, data }, draft, { helpers: this.helpers, errors: runtime.errors });
 
         // commit state if action is not read-only
         if (!options.readOnly) {
@@ -85,7 +86,7 @@ export default async function (scope, runtime, initialState, cstor) {
 
         try {
           if (query.op === "open") {
-            console.log("executing query on %s scope", scope.key, query);
+            console.log("executing query on %s scope", this.key, query);
 
             // handle dynamic scopes... loadScope if dynamic ?
 
@@ -123,7 +124,7 @@ export default async function (scope, runtime, initialState, cstor) {
   };
 
   if (isFunction(cstor)) {
-    return cstor(_api);
+    return await cstor(_api);
   } else {
     return _api;
   }

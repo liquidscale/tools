@@ -99,10 +99,7 @@ export function runtimeFactory(options = {}) {
       }
     },
     wrapSchema(spec) {
-      if (spec) {
-        console.log("wrapping schema", spec);
-        return schemaSpi(spec, this);
-      }
+      return schemaSpi(spec, this);
     },
     wrapAction(comp) {
       return actionSpi(comp.impl, this, comp);

@@ -35,7 +35,7 @@ export default function (runtime) {
             },
             async getComponent() {
               return runtime.wrapScope(_system, {}, async scope => {
-                console.log("initializing wrapped scope".cyan, scope);
+                console.log("initializing wrapped scope".cyan, scope.key);
                 if (!_system.store) {
                   console.log("no configured scope, let's create a simple memory store");
                   scope.store = runtime.createStore("memory", _system.key);
@@ -48,15 +48,15 @@ export default function (runtime) {
                 }
 
                 // Run all initializers to build initial state
-                const initializers = [..._system.initializers, ...(await runtime.findComponents({ stereotype: "initializer", scope: _system.key }))];
-                if (initializers.length > 0) {
+                if (_system.initializers.length > 0) {
                   const state = await scope.store.loadState();
-                  console.log("initializing state", state);
+                  console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
                   const draft = state.draft();
                   try {
-                    const context = { scope, config: scope.config, schema: scope.schema };
-                    initializers.map(initializer => initializer(draft, context));
+                    const context = { scope, console, config: scope.config, schema: scope.schema };
+                    await Promise.all(_system.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
+                    console.log("all initializers were executed", state);
                   } catch (err) {
                     console.log("unable to initialize system %s".red, _system.key, err);
                     state.rollback(draft);

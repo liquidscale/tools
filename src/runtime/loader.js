@@ -43,6 +43,7 @@ function extractComponentInfo(entry) {
   }
   comp.type = mime.getType(entry.path);
   comp.content = entry.content;
+
   return comp;
 }
 

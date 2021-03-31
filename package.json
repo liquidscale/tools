@@ -9,6 +9,9 @@
   "bin": {
     "lqs": "./src/main.js"
   },
+  "scripts": {
+    "test": "mocha test/**/*.test.js"
+  },
   "license": "MIT",
   "dependencies": {
     "@babel/core": "^7.13.10",
@@ -16,6 +19,7 @@
     "ajv": "^7.2.3",
     "bcryptjs": "^2.4.3",
     "bluebird": "^3.7.2",
+    "chai": "^4.3.4",
     "chokidar": "^3.5.1",
     "colors": "^1.4.0",
     "express": "^4.17.1",
@@ -39,5 +43,9 @@
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"
+  },
+  "devDependencies": {
+    "mocha": "^8.3.2",
+    "sinon": "^10.0.0"
   }
 }

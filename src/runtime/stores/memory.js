@@ -1,108 +1,48 @@
-import rxdb from "rxdb";
 import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet } from "immer";
-import memoryAdapter from "pouchdb-adapter-memory";
 import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
 import Observable from "rxjs";
-import { switchMap } from "rxjs/operators/index.js";
+import Query from "./mongo-query.js";
 
-const { createRxDatabase, addRxPlugin } = rxdb;
-const { last, get } = lodash;
+const { last, get, findIndex } = lodash;
 
-addRxPlugin(memoryAdapter);
 enablePatches();
 enableMapSet();
 
-export default function (key, config, runtime) {
+export default function (key, config) {
   console.log("initializing memory store %s".gray, key, config);
   const snapshotTreshold = get(config, "snapshotTreshold") || 50;
 
-  const DB = createRxDatabase({
-    name: key,
-    adapter: "memory",
-  });
-
-  const Collections = (async function () {
-    const db = await DB;
-    return db.addCollections({
-      frames: {
-        schema: {
-          title: "store frame",
-          version: 0,
-          type: "object",
-          properties: {
-            height: {
-              type: "number",
-            },
-            ts: {
-              type: "number",
-            },
-            patches: {
-              type: "array",
-            },
-          },
-          indexes: ["height"],
-        },
-      },
-      snapshots: {
-        schema: {
-          title: "store snapshots",
-          version: 0,
-          type: "object",
-          properties: {
-            height: {
-              type: "number",
-            },
-            state: {
-              type: "object",
-            },
-            ts: {
-              type: "number",
-            },
-            data: {
-              type: "object",
-            },
-          },
-          indexes: ["height"],
-          required: ["data", "height"],
-        },
-      },
-    });
-  })();
+  const storeFrames = [];
+  const storeSnapshots = [];
 
   async function heightSinceLastSnapshot() {
-    const storeState = await Collections;
-    const snapshot = await storeState.snapshots.findOne({ selector: {} }).sort({ height: -1 }).exec();
+    const snapshot = new Query(storeSnapshots).findOne({}, { sort: { height: -1 } }).get();
     let query = {};
     if (snapshot) {
       query = { height: { $gt: snapshot.height } };
     }
-    return (await storeState.snapshots.find({ selector: query }).exec()).length;
+    return new Query(storeFrames).find(query).get().length;
   }
 
   async function triggerSnapshot(height, data, { force = false } = {}) {
-    const storeState = await Collections;
     const needSnapshot = force || (await heightSinceLastSnapshot()) >= snapshotTreshold;
     if (needSnapshot) {
       console.log("producing a snapshot for store %s at height %d".cyan, key, height);
-      await storeState.snapshots.insert({ height, data, ts: new Date().getTime() });
+      storeSnapshots.push({ height, data, ts: new Date().getTime() });
     }
   }
 
   const publisher = {
     subscribe(observer) {
-      return Observable.defer(() => Collections)
-        .pipe(switchMap(storeState => storeState.frames.find().$))
-        .subscribe(observer);
+      return Observable.of(storeFrames).subscribe(observer);
     },
   };
 
-  const stateFactory = async function ({ initialState = {}, height = 0, locale = "en" } = {}) {
-    console.log("constructing state for store %s".gray, key, initialState || config.initialState, height);
-    const storeState = await Collections;
+  const stateFactory = function ({ initialState, height, locale = "en" } = {}) {
+    console.log("constructing state for store %s".gray, key, initialState, height);
 
     const state = {
-      height,
       locale,
       draft() {
         return createDraft(this.data);
@@ -110,8 +50,8 @@ export default function (key, config, runtime) {
       commit(draft) {
         this.height++;
         try {
-          const data = finishDraft(draft, patches => {
-            storeState.frames.insert({
+          this.data = finishDraft(draft, patches => {
+            storeFrames.push({
               height: this.height,
               ts: new Date().getTime(),
               patches,
@@ -119,7 +59,7 @@ export default function (key, config, runtime) {
           });
 
           // check if we need to create a snapshot
-          triggerSnapshot(this.height, data);
+          triggerSnapshot(this.height, this.data);
         } catch (err) {
           console.error(err);
         }
@@ -132,14 +72,10 @@ export default function (key, config, runtime) {
       },
     };
 
-    const snapshot = await storeState.snapshots
-      .findOne({ selector: { height: { $lte: height } } })
-      .sort("height")
-      .exec();
-
+    const snapshot = new Query(storeSnapshots).findOne({ height: { $lte: height } }, { sort: { height: -1 } }).get();
     const frameQuery = {};
-    if (snapshot) {
-      frameQuery.height = { $gt: snapshot.height };
+    if (snapshot.length > 0) {
+      frameQuery.height = { $gt: snapshot[0].height };
     } else {
       frameQuery.height = { $gte: height };
     }
@@ -148,10 +84,12 @@ export default function (key, config, runtime) {
       frameQuery.locale = locale;
     }
 
-    const data = snapshot ? snapshot.toJSON().data || {} : initialState || config.initialState || {};
+    const data = snapshot.length > 0 ? snapshot[0].data : initialState || {};
+
+    console.log("loaded base data", data);
 
     // retrieve all frames since snapshot (or 0)
-    const frames = await storeState.frames.find({ selector: frameQuery }).sort("height").exec();
+    const frames = new Query(storeFrames).find(frameQuery, { sort: { height: -1 } }).get();
     console.log("applying additional frames", frames);
 
     if (frames.length > 0) {
@@ -159,8 +97,10 @@ export default function (key, config, runtime) {
       state.height = last(frames).height;
     } else {
       state.data = data;
-      state.height = snapshot ? snapshot.height : height;
+      state.height = snapshot.length > 0 ? snapshot[0].height : height || 0;
     }
+
+    console.log("final state data", state.data);
 
     return state;
   };
@@ -170,16 +110,28 @@ export default function (key, config, runtime) {
     type: "memory",
     stereotype: "store",
     async initState(initialState) {
-      console.log("initializing store %s state", key, initialState || config.initialState);
+      console.log("initializing store %s state", key, initialState);
 
       // create an initial snapshot
-      if (initialState || config.initialState) {
-        await triggerSnapshot(0, initialState || config.initialState, { force: true });
+      if (initialState) {
+        await triggerSnapshot(0, initialState, { force: true });
       }
       return stateFactory({ height: 0 });
     },
     async loadState(context) {
       return stateFactory(context);
+    },
+    async injectSnapshot(snapshot) {
+      if (!snapshot.ts) {
+        snapshot.ts = new Date().getTime();
+      }
+      console.log("injecting snapshot", snapshot);
+      const targetIdx = findIndex(storeSnapshots, s => s.height === snapshot.height);
+      if (targetIdx !== -1) {
+        storeSnapshots[targetIdx] = snapshot;
+      } else {
+        storeSnapshots.push(snapshot);
+      }
     },
     applyConfig(cfg) {
       console.log("applying new config to store memory:", key, cfg);

@@ -4,6 +4,8 @@ import Ajv from "ajv";
 const { isString } = lodash;
 
 export default function (schemaSpec, runtime) {
+  if (!schemaSpec) return;
+
   let spec = schemaSpec;
   if (isString(schemaSpec)) {
     spec = runtime.findComponent({ stereotype: "schema", key: schemaSpec });
