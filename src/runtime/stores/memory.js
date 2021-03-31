@@ -54,6 +54,7 @@ export default function (key, config) {
             storeFrames.push({
               height: this.height,
               ts: new Date().getTime(),
+              locale,
               patches,
             });
           });
@@ -68,16 +69,25 @@ export default function (key, config) {
         // noop
       },
       selector(expr) {
-        return queryBuilder(this.data, publisher).selector(expr);
+        const qb = queryBuilder(this.data, publisher);
+        if (expr) {
+          return qb.selector(expr);
+        }
+        return qb;
       },
     };
 
-    const snapshot = new Query(storeSnapshots).findOne({ height: { $lte: height } }, { sort: { height: -1 } }).get();
+    console.log("preparing state from raw frames", storeFrames, storeSnapshots);
+
+    const snapshot = new Query(storeSnapshots)
+      .findOne({ height: { $lte: height || 0 } })
+      .sort({ height: -1 })
+      .get();
     const frameQuery = {};
     if (snapshot.length > 0) {
       frameQuery.height = { $gt: snapshot[0].height };
     } else {
-      frameQuery.height = { $gte: height };
+      frameQuery.height = { $gte: height || 0 };
     }
 
     if (locale) {
@@ -89,7 +99,8 @@ export default function (key, config) {
     console.log("loaded base data", data);
 
     // retrieve all frames since snapshot (or 0)
-    const frames = new Query(storeFrames).find(frameQuery, { sort: { height: -1 } }).get();
+    console.log("selecting frames using query", frameQuery, storeFrames);
+    const frames = new Query(storeFrames).find(frameQuery).sort({ height: -1 }).get();
     console.log("applying additional frames", frames);
 
     if (frames.length > 0) {

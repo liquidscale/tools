@@ -1,7 +1,7 @@
 import jp from "jsonpath";
 import Query from "./mongo-query.js";
 import lodash from "lodash";
-import { Subject } from "rxjs";
+import { BehaviorSubject } from "rxjs";
 import { applyPatches } from "immer";
 
 const { isFunction, isArray } = lodash;
@@ -25,7 +25,8 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
       return this;
     },
     query(expression, { sort, limit, skip } = {}) {
-      if (expression) {
+      if (expression && Array.isArray(data)) {
+        console.log("executing query", expression);
         const q = new Query(data);
         if (Object.keys(expression).length > 0) {
           const result = q.find(expression, { sort, limit, skip }).get();
@@ -34,9 +35,8 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
           const result = q.filter(expression).sort(sort).skip(skip).limit(limit).get();
           return queryBuilder(result, publisher, { selector, query: { expression, options: { sort, limit, skip } } });
         }
-      } else {
-        return this;
       }
+      return this;
     },
     result(options = {}) {
       if (options.single && isArray(data) && data.length > 0) {
@@ -49,7 +49,7 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
         selector,
         cached: data,
         query,
-        results: new Subject(),
+        results: new BehaviorSubject(),
         snapshot() {
           let snapshot = null;
 
@@ -60,13 +60,13 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
             snapshot = jp.query(this.cached, this.selector);
           }
 
-          if (this.query) {
+          if (this.query && Array.isArray(snapshot || this.cached)) {
             console.log("applying query on data", this.query, snapshot, this.cached);
             snapshot = new Query(snapshot || this.cached).find(this.query.expression, this.query.options).get();
           }
 
-          console.log("produced data snapshot", snapshot);
-          return snapshot;
+          console.log("producing data", snapshot, this.cached);
+          return snapshot || this.cached;
         },
       };
 
@@ -78,10 +78,10 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
             console.log("applying patches from frame", frame.patches);
             return applyPatches(data, frame.patches);
           }, queryResultTracker.cached);
-          queryResultTracker.results.next(queryResultTracker.snapshot());
-        } else {
-          console.log("nothing new here...");
         }
+        const result = queryResultTracker.snapshot();
+        console.log("publishing a new query result", result);
+        queryResultTracker.results.next(result);
       });
 
       queryResultTracker.complete = function () {

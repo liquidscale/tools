@@ -34,23 +34,14 @@ export default async function (scope, runtime, initialState, cstor) {
         await scope.store.applyConfig(cfg);
       }
     },
-    async queryInContext(expression, options, context) {
-      console.log("executing query ", expression, options, context);
+    async queryInContext(selector, expression, options, context) {
+      console.log("executing query ", selector, expression, options, context);
       try {
         const state = await this.store.loadState(context);
-        console.log("execute query on data", expression, state, context);
+        console.log("execute query on data", selector, expression, state, context);
 
         // apply selector
-        return [
-          state
-            .selector(options.selector)
-            .query(expression)
-            .track(tracker => {
-              //TODO: apply permissions to watcher
-              return tracker;
-            }),
-          null,
-        ];
+        return [state.selector(selector).query(expression).track(), null];
       } catch (err) {
         return [null, err];
       }
@@ -91,7 +82,7 @@ export default async function (scope, runtime, initialState, cstor) {
             // handle dynamic scopes... loadScope if dynamic ?
 
             // create subscription on this scope with the provided context and selector
-            const [queryTracker, error] = await this.queryInContext(query.expression, query.options, query.context);
+            const [queryTracker, error] = await this.queryInContext(query.selector, query.expression, query.options, query.context);
             if (queryTracker) {
               // register subscription (query id, subscription)
               console.log("tracker", queryTracker);
@@ -104,7 +95,7 @@ export default async function (scope, runtime, initialState, cstor) {
 
             // handle dynamic scopes... loadScope if dynamic ?
 
-            const queryTracker = this.queryInContext(query.expression, query.options, query.context);
+            const queryTracker = this.queryInContext(query.selector, query.expression, query.options, query.context);
             query.channel.emit(queryTracker.snapshot());
             queryTracker.complete();
           } else if (query.op === "close") {

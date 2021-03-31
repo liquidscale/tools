@@ -24,7 +24,6 @@ export default function (key, cfg, runtime) {
           const securityScope = await runtime.resolve({ stereotype: "scope", key: "security" });
           message.tokenInfo = securityScope.helpers.extractTokenInfos(message.token);
         } catch (err) {
-          console.error(err);
           return ws.send(JSON.stringify({ error: { message: "invalid token or error processing it", code: 403 } }));
         }
       }
@@ -32,6 +31,8 @@ export default function (key, cfg, runtime) {
       if (message.query) {
         if (message.op === "open") {
           message.options = message.options || {};
+
+          console.log("constructing query from message", message);
 
           const query = {
             id: message.query,
@@ -51,13 +52,18 @@ export default function (key, cfg, runtime) {
             },
             channel: {
               emit(data, type = "result") {
-                if (query.options.single) {
-                  console.log("producing single result", data);
-                  if (Array.isArray(data)) {
-                    return ws.send(JSON.stringify({ sid: query.id, type, data: data[0] }));
+                console.log("ws: received query %s result", query.id, data, type);
+                if (data) {
+                  if (query.options.single) {
+                    if (Array.isArray(data)) {
+                      data = data[0];
+                    }
                   }
+                  console.log("ws: producing query %s result", query.id, data);
+                  ws.send(JSON.stringify({ sid: query.id, type, data }));
+                } else {
+                  console.log("ws: skipping empty or undefined data for query %s", query.id);
                 }
-                ws.send(JSON.stringify({ sid: query.id, type, data }));
               },
               error(error) {
                 ws.send(JSON.stringify({ sid: query.id, type: "error", error }));

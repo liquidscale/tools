@@ -38,11 +38,16 @@ export default function (runtime) {
               const userScope = await _scope.loadScope(query.context.actor);
 
               // create subscription on this scope with the provided context and selector
-              const [queryTracker, error] = await userScope.queryInContext(query.expression, query.options, query.context);
+              const [queryTracker, error] = await userScope.queryInContext(query.selector, query.expression, query.options, query.context);
               if (queryTracker) {
                 // register subscription (query id, subscription)
-                console.log("tracker", queryTracker);
-                queryTrackers[query.id] = { queryTracker, subscription: queryTracker.results.subscribe(result => query.channel.emit(result)) };
+                queryTrackers[query.id] = {
+                  queryTracker,
+                  subscription: queryTracker.results.subscribe(result => {
+                    console.log("emitting new result for query %s", query.id, result);
+                    query.channel.emit(result);
+                  }),
+                };
               } else {
                 throw error;
               }
@@ -51,7 +56,7 @@ export default function (runtime) {
 
               // instantiate the target scope for the specified user
               const userScope = await targetScope.loadScope(query.context.actor);
-              const queryTracker = userScope.queryInContext(query.expression, query.options, query.context);
+              const queryTracker = userScope.queryInContext(query.selector, query.expression, query.options, query.context);
               query.channel.emit(queryTracker.snapshot());
               queryTracker.complete();
             } else if (query.op === "close") {

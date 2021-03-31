@@ -4,7 +4,12 @@ import { expect } from "chai";
 import { queryBuilder } from "../../../src/runtime/stores/query-builder.js";
 import sinon from "sinon";
 
+const USER = {
+  username: "u1",
+};
+
 const DATA = {
+  users: [{ username: "u1" }, { username: "u2" }, { username: "u3" }],
   chatrooms: [
     {
       title: "room1",
@@ -54,5 +59,10 @@ describe("query-builder", function () {
       .query(room => room.members.find(m => m.username === "u2"))
       .result();
     expect(result.length).to.equal(1);
+  });
+  it("return a single user", function () {
+    const result = queryBuilder(USER, publisher).result();
+    console.log(result);
+    expect(result).to.equal(USER);
   });
 });
