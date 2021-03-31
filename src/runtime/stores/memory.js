@@ -59,6 +59,8 @@ export default function (key, config) {
             });
           });
 
+          console.log("new state is", this.data);
+
           // check if we need to create a snapshot
           triggerSnapshot(this.height, this.data);
         } catch (err) {
@@ -77,12 +79,11 @@ export default function (key, config) {
       },
     };
 
-    console.log("preparing state from raw frames", storeFrames, storeSnapshots);
-
     const snapshot = new Query(storeSnapshots)
       .findOne({ height: { $lte: height || 0 } })
       .sort({ height: -1 })
       .get();
+
     const frameQuery = {};
     if (snapshot.length > 0) {
       frameQuery.height = { $gt: snapshot[0].height };
@@ -98,11 +99,8 @@ export default function (key, config) {
 
     console.log("loaded base data", data);
 
-    // retrieve all frames since snapshot (or 0)
-    console.log("selecting frames using query", frameQuery, storeFrames);
-    const frames = new Query(storeFrames).find(frameQuery).sort({ height: -1 }).get();
-    console.log("applying additional frames", frames);
-
+    // retrieve all frames after our computed height
+    const frames = new Query(storeFrames).find(frameQuery).sort({ height: 1 }).get();
     if (frames.length > 0) {
       state.data = frames.reduce((state, frame) => applyPatches(state, frame.patches), data);
       state.height = last(frames).height;

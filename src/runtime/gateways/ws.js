@@ -12,10 +12,21 @@ export default function (key, cfg, runtime) {
   const app = express();
   expressWs(app);
 
-  // TODO: add oauth middleware. check incoming token, extract user identity
+  app.use(function (req, res, next) {
+    req.context = {
+      aid: req.headers["x-lqs-client-id"],
+      did: req.headers["x-lqs-device-id"],
+      locale: req.headers["content-language"],
+      height: req.headers["x-lqs-target-height"],
+      time: new Date(), //TODO: parse incoming header. target date or interval like : 7 days before, in 10 months, etc.
+    };
+    next();
+  });
 
-  app.ws("/", function (ws) {
-    ws.on("message", async function (msg, req) {
+  app.ws("/", function (ws, req) {
+    //TODO: handle disconnection (close all query trackers for this socket)
+
+    ws.on("message", async function (msg) {
       const message = JSON.parse(msg);
 
       // extract token
@@ -23,6 +34,7 @@ export default function (key, cfg, runtime) {
         try {
           const securityScope = await runtime.resolve({ stereotype: "scope", key: "security" });
           message.tokenInfo = securityScope.helpers.extractTokenInfos(message.token);
+          delete message.token;
         } catch (err) {
           return ws.send(JSON.stringify({ error: { message: "invalid token or error processing it", code: 403 } }));
         }
@@ -32,7 +44,7 @@ export default function (key, cfg, runtime) {
         if (message.op === "open") {
           message.options = message.options || {};
 
-          console.log("constructing query from message", message);
+          console.log("executing query in context", req.context);
 
           const query = {
             id: message.query,
@@ -47,12 +59,12 @@ export default function (key, cfg, runtime) {
               sort: message.options.sort,
             },
             context: {
+              ...req.context,
               actor: get(message.tokenInfo, "username"),
               permissions: get(message.tokenInfo, "scope"),
             },
             channel: {
               emit(data, type = "result") {
-                console.log("ws: received query %s result", query.id, data, type);
                 if (data) {
                   if (query.options.single) {
                     if (Array.isArray(data)) {
@@ -79,7 +91,7 @@ export default function (key, cfg, runtime) {
       } else if (message.action) {
         const action = {
           ...message,
-          context: {},
+          context: { ...req.context, actor: get(message.tokenInfo, "username"), permissions: get(message.tokenInfo, "scope") },
           channel: {
             emit(data, type = "result") {
               ws.send(JSON.stringify({ sid: message.action, type, data }));
@@ -87,6 +99,9 @@ export default function (key, cfg, runtime) {
             error(error) {
               console.error("action error", error);
               ws.send(JSON.stringify({ sid: message.action, type: "error", error }));
+            },
+            ack() {
+              ws.send(JSON.stringify({ sid: message.action, type: "ack" }));
             },
           },
         };

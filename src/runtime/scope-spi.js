@@ -1,4 +1,5 @@
 import lodash from "lodash";
+import Promise from "bluebird";
 
 const { isFunction } = lodash;
 
@@ -13,6 +14,18 @@ export default async function (scope, runtime, initialState, cstor) {
   if (!scope.stereotype) {
     scope.stereotype = "scope";
   }
+
+  const _platformApi = {
+    spawn(scopeKey, initialState) {
+      console.log("spawning child scope %s with initial state", scopeKey, initialState);
+      //TODO: create and register the new scope. Create a bi-directional subscription from child to parent and
+      // return a ref to the child scope. A ref is a subscription to the child "privileged" publication.
+      return {
+        key: scopeKey,
+        state: initialState,
+      };
+    },
+  };
 
   const _api = {
     key: scope.key,
@@ -48,6 +61,9 @@ export default async function (scope, runtime, initialState, cstor) {
     },
     async executeInContext(action, data, fn, context, options = {}) {
       console.log("executing action in scope %s", this.key);
+      if (!Array.isArray(fn)) {
+        fn = [fn];
+      }
 
       try {
         // TODO: check if action is supported
@@ -57,11 +73,14 @@ export default async function (scope, runtime, initialState, cstor) {
         const draft = state.draft();
 
         // execute the fn, injecting all helpers and errors
-        const result = await fn({ ...action, data }, draft, { helpers: this.helpers, errors: runtime.errors });
+        const result = await Promise.reduce(fn, (draft, f) => f({ ...action, data }, draft, { scope: _platformApi, helpers: this.helpers, console, errors: runtime.errors }), draft);
 
         // commit state if action is not read-only
         if (!options.readOnly) {
+          console.log("committing changes to store", state);
           state.commit(draft);
+
+          // TODO: trigger all scope effects, including publication subscribers update...
         }
 
         return [result, null];
