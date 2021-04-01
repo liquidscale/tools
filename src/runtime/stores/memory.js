@@ -1,7 +1,7 @@
 import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet } from "immer";
 import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
-import Observable from "rxjs";
+import { BehaviorSubject } from "rxjs";
 import Query from "./mongo-query.js";
 
 const { last, get, findIndex } = lodash;
@@ -13,31 +13,31 @@ export default function (key, config) {
   console.log("initializing memory store %s".gray, key, config);
   const snapshotTreshold = get(config, "snapshotTreshold") || 50;
 
-  const storeFrames = [];
-  const storeSnapshots = [];
+  const _state = {
+    frames: [],
+    snapshots: [],
+    publications: [],
+    subscriptions: [],
+  };
 
   async function heightSinceLastSnapshot() {
-    const snapshot = new Query(storeSnapshots).findOne({}, { sort: { height: -1 } }).get();
+    const snapshot = new Query(_state.snapshots).findOne({}, { sort: { height: -1 } }).get();
     let query = {};
     if (snapshot) {
       query = { height: { $gt: snapshot.height } };
     }
-    return new Query(storeFrames).find(query).get().length;
+    return new Query(_state.frames).find(query).get().length;
   }
 
   async function triggerSnapshot(height, data, { force = false } = {}) {
     const needSnapshot = force || (await heightSinceLastSnapshot()) >= snapshotTreshold;
     if (needSnapshot) {
       console.log("producing a snapshot for store %s at height %d".cyan, key, height);
-      storeSnapshots.push({ height, data, ts: new Date().getTime() });
+      _state.snapshots.push({ height, data, ts: new Date().getTime() });
     }
   }
 
-  const publisher = {
-    subscribe(observer) {
-      return Observable.of(storeFrames).subscribe(observer);
-    },
-  };
+  const publisher = new BehaviorSubject();
 
   const stateFactory = function ({ initialState, height, locale = "en" } = {}) {
     console.log("constructing state for store %s".gray, key, initialState, height);
@@ -51,15 +51,17 @@ export default function (key, config) {
         this.height++;
         try {
           this.data = finishDraft(draft, patches => {
-            storeFrames.push({
+            const newFrame = {
               height: this.height,
               ts: new Date().getTime(),
               locale,
               patches,
-            });
+            };
+            console.log("new state is", this.data);
+            _state.frames.push(newFrame);
           });
 
-          console.log("new state is", this.data);
+          publisher.next(this.data);
 
           // check if we need to create a snapshot
           triggerSnapshot(this.height, this.data);
@@ -79,7 +81,7 @@ export default function (key, config) {
       },
     };
 
-    const snapshot = new Query(storeSnapshots)
+    const snapshot = new Query(_state.snapshots)
       .findOne({ height: { $lte: height || 0 } })
       .sort({ height: -1 })
       .get();
@@ -100,7 +102,7 @@ export default function (key, config) {
     console.log("loaded base data", data);
 
     // retrieve all frames after our computed height
-    const frames = new Query(storeFrames).find(frameQuery).sort({ height: 1 }).get();
+    const frames = new Query(_state.frames).find(frameQuery).sort({ height: 1 }).get();
     if (frames.length > 0) {
       state.data = frames.reduce((state, frame) => applyPatches(state, frame.patches), data);
       state.height = last(frames).height;
@@ -110,6 +112,10 @@ export default function (key, config) {
     }
 
     console.log("final state data", state.data);
+
+    if (!publisher.getValue()) {
+      publisher.next(state.data);
+    }
 
     return state;
   };
@@ -135,11 +141,11 @@ export default function (key, config) {
         snapshot.ts = new Date().getTime();
       }
       console.log("injecting snapshot", snapshot);
-      const targetIdx = findIndex(storeSnapshots, s => s.height === snapshot.height);
+      const targetIdx = findIndex(_state.snapshots, s => s.height === snapshot.height);
       if (targetIdx !== -1) {
-        storeSnapshots[targetIdx] = snapshot;
+        _state.snapshots[targetIdx] = snapshot;
       } else {
-        storeSnapshots.push(snapshot);
+        _state.snapshots.push(snapshot);
       }
     },
     applyConfig(cfg) {

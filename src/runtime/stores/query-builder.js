@@ -56,8 +56,10 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
           if (!this.cached) return;
 
           if (this.selector) {
-            console.log("applying selector on data", this.selector, snapshot, this.cached);
             snapshot = jp.query(this.cached, this.selector);
+            if (snapshot.length > 0) {
+              snapshot = snapshot[0];
+            }
           }
 
           if (this.query && Array.isArray(snapshot || this.cached)) {
@@ -70,15 +72,9 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
         },
       };
 
-      const stream = publisher.subscribe(frames => {
-        console.log("received new results for query ", queryResultTracker.selector, queryResultTracker.query, frames, queryResultTracker.cached);
-        if (frames.length > 0) {
-          console.log("processing new frames", frames);
-          queryResultTracker.cached = frames.reduce((data, frame) => {
-            console.log("applying patches from frame", frame.patches);
-            return applyPatches(data, frame.patches);
-          }, queryResultTracker.cached);
-        }
+      const stream = publisher.subscribe(data => {
+        console.log("--> received new results for query ", data);
+        queryResultTracker.cached = data;
         const result = queryResultTracker.snapshot();
         console.log("publishing a new query result", result);
         queryResultTracker.results.next(result);

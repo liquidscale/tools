@@ -29,6 +29,7 @@ import device from "./scopes/device.js";
 import matcher from "matcher";
 import memoryStore from "./stores/memory.js";
 import errors from "./errors.js";
+import publicationSpi from "./publication-spi.js";
 
 export function runtimeFactory(options = {}) {
   console.log("instantiating runtime ".green);
@@ -100,6 +101,9 @@ export function runtimeFactory(options = {}) {
     },
     wrapSchema(spec) {
       return schemaSpi(spec, this);
+    },
+    wrapPublication(spec, scope) {
+      return publicationSpi(spec, scope, this);
     },
     wrapAction(comp) {
       return actionSpi(comp.impl, this, comp);

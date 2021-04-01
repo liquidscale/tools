@@ -1,7 +1,7 @@
 import lodash from "lodash";
 import Promise from "bluebird";
 
-const { isFunction } = lodash;
+const { isFunction, reduce } = lodash;
 
 const queryTrackers = {};
 
@@ -15,18 +15,6 @@ export default async function (scope, runtime, initialState, cstor) {
     scope.stereotype = "scope";
   }
 
-  const _platformApi = {
-    spawn(scopeKey, initialState) {
-      console.log("spawning child scope %s with initial state", scopeKey, initialState);
-      //TODO: create and register the new scope. Create a bi-directional subscription from child to parent and
-      // return a ref to the child scope. A ref is a subscription to the child "privileged" publication.
-      return {
-        key: scopeKey,
-        state: initialState,
-      };
-    },
-  };
-
   const _api = {
     key: scope.key,
     stereotype: scope.steteotype || "scope",
@@ -35,10 +23,6 @@ export default async function (scope, runtime, initialState, cstor) {
     config: runtime.wrapConfig(scope.config),
     schema: runtime.wrapSchema(scope.schema),
     store: scope.store,
-    subscribe(subscriptionSpec) {
-      console.log("subscribing scope %s to ", scope.key, subscriptionSpec);
-      return {};
-    },
     async applyConfig(cfg) {
       console.log("applying config to scope %s".gray, scope.key, cfg);
       scope.config = cfg;
@@ -46,6 +30,10 @@ export default async function (scope, runtime, initialState, cstor) {
       if (scope.store && isFunction(scope.store.applyConfig)) {
         await scope.store.applyConfig(cfg);
       }
+    },
+    subscribe(subscriptionSpec) {
+      console.log("subscribing scope %s to ", scope.key, subscriptionSpec);
+      return {};
     },
     async queryInContext(selector, expression, options, context) {
       console.log("executing query ", selector, expression, options, context);
@@ -79,8 +67,6 @@ export default async function (scope, runtime, initialState, cstor) {
         if (!options.readOnly) {
           console.log("committing changes to store", state);
           state.commit(draft);
-
-          // TODO: trigger all scope effects, including publication subscribers update...
         }
 
         return [result, null];
@@ -131,6 +117,55 @@ export default async function (scope, runtime, initialState, cstor) {
         }
       });
     },
+  };
+
+  const defaultSpec = {
+    key: "default",
+    stereotype: "publication",
+    selector: "$",
+    expression: null,
+    options: {},
+    context: {},
+  };
+
+  const publications = reduce(
+    scope.publications || [],
+    (pubs, pub) => {
+      console.log("registering publication ", pub.key);
+      pubs[pub.key] = runtime.wrapPublication(pub, _api);
+      return pubs;
+    },
+    {
+      default: runtime.wrapPublication(defaultSpec, _api),
+    }
+  );
+
+  const _platformApi = {
+    spawn(scopeKey, initialState) {
+      console.log("spawning child scope %s with initial state", scopeKey, initialState);
+      //TODO: create and register the new scope. Create a bi-directional subscription from child to parent and
+      // return a ref to the child scope. A ref is a subscription to the child "privileged" publication.
+      return {
+        key: scopeKey,
+        state: initialState,
+      };
+    },
+  };
+
+  _api.using = function (pubKey, fn) {
+    console.log("executing code within publication context", pubKey);
+    const pub = publications[pubKey];
+    console.log("resolved pub", pub);
+    return pub.$.subscribe(state =>
+      fn(state, {
+        query(...args) {
+          return _api.queryInContext(...args);
+        },
+        execute() {
+          return _api.executeInContext(...args);
+        },
+      })
+    );
   };
 
   if (isFunction(cstor)) {
