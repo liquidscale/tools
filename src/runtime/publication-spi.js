@@ -5,8 +5,8 @@ export default function (spec, scope) {
   const _state = new BehaviorSubject();
 
   setTimeout(async function () {
-    console.log("connecting publication to scope", scope);
-    const [queryTracker, error] = await scope.queryInContext(spec.selector, spec.expression, spec.options, { ...spec.context, priviledged: spec.priviledged });
+    console.log("connecting publication to scope", scope.key);
+    const [queryTracker, error] = await scope.queryInContext(spec.selector, spec.expression, spec.options, spec.context);
     if (queryTracker) {
       queryTracker.results.subscribe(result => {
         console.log("received new state for publication %s:%s", scope.key, spec.key, result);
@@ -20,6 +20,9 @@ export default function (spec, scope) {
 
   return {
     $: _state,
-    subscribe() {},
+    subscribe(options = {}) {
+      console.log("creating a new subscription for publication %s", spec.key, options);
+      return {};
+    },
   };
 }

@@ -70,6 +70,7 @@ export default function (runtime) {
       return this.components().pipe(find(queryHandler(query, options)));
     },
     findComponent(query, options) {
+      console.log("components", components);
       return components.find(queryHandler(query, options));
     },
     resolve(query, options = {}) {

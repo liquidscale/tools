@@ -3,6 +3,7 @@ import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
 import Query from "./mongo-query.js";
+import shortid from "shortid-36";
 
 const { last, get, findIndex } = lodash;
 
@@ -43,37 +44,42 @@ export default function (key, config) {
     console.log("constructing state for store %s".gray, key, initialState, height);
 
     const state = {
+      id: shortid.generate(),
       locale,
       draft() {
-        return createDraft(this.data);
+        console.log("create draft", state);
+        return createDraft(state.data);
       },
       commit(draft) {
-        this.height++;
+        console.log("committing changes", state.id);
+        state.height++;
         try {
-          this.data = finishDraft(draft, patches => {
+          state.data = finishDraft(draft, patches => {
+            console.log(state.id, patches);
             const newFrame = {
-              height: this.height,
+              height: state.height,
               ts: new Date().getTime(),
               locale,
               patches,
             };
-            console.log("new state is", this.data);
+            console.log("new state is", state);
             _state.frames.push(newFrame);
           });
 
-          publisher.next(this.data);
+          console.log("committed state", state);
+          publisher.next(state.data);
 
           // check if we need to create a snapshot
-          triggerSnapshot(this.height, this.data);
+          triggerSnapshot(state.height, state.data);
         } catch (err) {
-          console.error(err);
+          console.error("commit error", state.id, err);
         }
       },
       rollback() {
         // noop
       },
       selector(expr) {
-        const qb = queryBuilder(this.data, publisher);
+        const qb = queryBuilder(state.data, publisher);
         if (expr) {
           return qb.selector(expr);
         }

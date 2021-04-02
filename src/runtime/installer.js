@@ -11,6 +11,9 @@ export default function (runtime) {
         case "system":
           comp = await component.impl.getComponent();
           break;
+        case "scope":
+          comp = await component.impl.getComponent();
+          break;
         default:
           comp = component;
           break;

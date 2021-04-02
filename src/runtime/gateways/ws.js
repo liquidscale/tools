@@ -40,6 +40,7 @@ export default function (key, cfg, runtime) {
         }
       }
 
+      console.log("==> RECEIVED MESSAGE", message);
       if (message.query) {
         if (message.op === "open") {
           message.options = message.options || {};

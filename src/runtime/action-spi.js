@@ -27,7 +27,8 @@ export default function (spec, runtime) {
     // bind to our target scope (if specified)
     let scope = null;
     if (spec.bind.scope) {
-      scope = await runtime.resolve({ stereotype: "scope", key: spec.bind.scope });
+      const scopeKey = runtime.realizeKey(spec.bind.scope, req.data);
+      scope = await runtime.resolve({ stereotype: "scope", key: scopeKey });
     }
 
     //TODO: check if action can be applied on this scope

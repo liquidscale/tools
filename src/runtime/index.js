@@ -30,6 +30,8 @@ import matcher from "matcher";
 import memoryStore from "./stores/memory.js";
 import errors from "./errors.js";
 import publicationSpi from "./publication-spi.js";
+import subscriptionSpi from "./subscription-spi.js";
+import jsexpr from "jsexpr";
 
 export function runtimeFactory(options = {}) {
   console.log("instantiating runtime ".green);
@@ -78,6 +80,15 @@ export function runtimeFactory(options = {}) {
     wrapScope(scope, initialState, cstor) {
       return scopeSpi(scope, this, initialState, cstor);
     },
+    dynamicScope(factoryKey, spec, initialState, cstor) {
+      console.log("instantiating dynamic scope", factoryKey, spec, initialState, cstor);
+      const templateScope = this.registry.findComponent({ stereotype: "scope", key: factoryKey });
+      if (templateScope) {
+        return templateScope.dynamicScope(spec, initialState, cstor);
+      } else {
+        throw new Error("cannot find dynamic scope template" + factoryKey);
+      }
+    },
     wrapConfig(cfg) {
       return configSpi(cfg, this);
     },
@@ -105,6 +116,9 @@ export function runtimeFactory(options = {}) {
     wrapPublication(spec, scope) {
       return publicationSpi(spec, scope, this);
     },
+    wrapSubscription(scope, pubKey, spec) {
+      return subscriptionSpi(scope, pubKey, spec, this);
+    },
     wrapAction(comp) {
       return actionSpi(comp.impl, this, comp);
     },
@@ -127,33 +141,38 @@ export function runtimeFactory(options = {}) {
         return scopeKey;
       }
     },
+    realizeKey(key, state) {
+      return jsexpr.expr(key)(state);
+    },
   };
 
   // initialize our component registry
   spi.registry = registry(spi);
   spi.health = health(spi);
 
-  // connect our component handlers
-  loader(spi);
-  compiler(spi);
-  installer(spi);
-  uninstaller(spi);
+  if (!options.test) {
+    // connect our component handlers
+    loader(spi);
+    compiler(spi);
+    installer(spi);
+    uninstaller(spi);
 
-  gateways(spi);
-  transports(spi);
-  stores(spi);
+    gateways(spi);
+    transports(spi);
+    stores(spi);
 
-  // create standard scopes
-  world(spi);
-  organization(spi);
-  security(spi);
-  cluster(spi);
-  library(spi);
-  user(spi);
-  device(spi);
+    // create standard scopes
+    world(spi);
+    organization(spi);
+    security(spi);
+    cluster(spi);
+    library(spi);
+    user(spi);
+    device(spi);
 
-  // load all system scopes, which will trigger all sub-components initialization like timers, triggers, effects, etc.
-  systems(spi);
+    // load all system scopes, which will trigger all sub-components initialization like timers, triggers, effects, etc.
+    systems(spi);
+  }
 
   // Return the public api for our runtime
   return {
@@ -167,6 +186,13 @@ export function runtimeFactory(options = {}) {
         return fileSystemBundle(spi, config);
       } else {
         throw new Error("unsupported bundle type:" + type);
+      }
+    },
+    internal() {
+      if (process.env.NODE_ENV !== "production") {
+        return spi;
+      } else {
+        throw new Error("internal runtime api cannot be exposed in production");
       }
     },
   };

@@ -97,6 +97,42 @@ export default function (runtime) {
             finalizer(fn) {
               _scope.finalizers.push(fn);
             },
+            async getComponent() {
+              return runtime.wrapScope(_scope, {}, async scope => {
+                console.log("initializing scope".cyan, scope.key);
+                if (!_scope.store) {
+                  console.log("no configured store, let's create a simple memory store");
+                  scope.store = runtime.createStore("memory", scope.key);
+                }
+
+                if (isString(_scope.store)) {
+                  console.log("resolving store %s", _scope.store);
+                  scope.store = await runtime.resolve({ stereotype: "store", key: _scope.store });
+                  console.log("scope %s store was successfully resolved".green, scope.store);
+                }
+
+                // Run all initializers to build initial state
+                if (_scope.initializers.length > 0) {
+                  const state = await scope.store.loadState();
+                  console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
+                  const draft = state.draft();
+                  try {
+                    const context = { scope, console, config: scope.config, schema: scope.schema };
+                    await Promise.all(_scope.initializers.map(async initializer => initializer(draft, context)));
+                    state.commit(draft);
+                    console.log("all initializers were executed", state);
+                  } catch (err) {
+                    console.log("unable to initialize system %s".red, scope.key, err);
+                    state.rollback(draft);
+                  }
+                }
+
+                scope.waitForQueries(scope.key);
+
+                console.log("scope %s successfully loaded".green, scope.key);
+                return scope;
+              });
+            },
           }; // scope instance
         },
       };
