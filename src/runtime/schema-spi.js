@@ -12,8 +12,6 @@ export default function (schemaSpec, runtime) {
     spec = runtime.findComponent({ stereotype: "schema", key: schemaSpec });
   }
 
-  console.log("wrapping schema", spec, schemaSpec);
-
   const ajv = new Ajv.default({ strict: false, strictSchema: false });
   ajvKeywords(ajv);
   ajv.addFormat("date-time", {

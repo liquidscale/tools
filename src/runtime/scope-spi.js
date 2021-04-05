@@ -7,8 +7,6 @@ const { isFunction, reduce } = lodash;
 const queryTrackers = {};
 
 export default async function (scope, runtime, initialState, cstor) {
-  console.log("wrapping spi scope".gray, scope, initialState);
-
   if (!scope.stereotype) {
     scope.stereotype = "scope";
   }
@@ -30,9 +28,9 @@ export default async function (scope, runtime, initialState, cstor) {
     schema: runtime.wrapSchema(scope.schema),
     initializers: scope.initializers || [],
     finalizers: scope.finalizers || [],
+    constraints: scope.constraints || [],
     store: scope.store,
     async applyConfig(cfg) {
-      console.log("applying config to scope %s".gray, scope.key, cfg);
       scope.config = cfg;
       // push config to store
       if (scope.store && isFunction(scope.store.applyConfig)) {
@@ -40,14 +38,11 @@ export default async function (scope, runtime, initialState, cstor) {
       }
     },
     subscribe(pubKey, subscriptionSpec) {
-      console.log("subscribing to publication %s of scope %s ", pubKey, this.key, subscriptionSpec);
-      return runtime.wrapSubscription(this, pubKey, subscriptionSpec);
+      return runtime.wrapSubscription(this, publications[pubKey], subscriptionSpec);
     },
     async queryInContext(selector, expression, options, context) {
-      console.log("executing query ", selector, expression, options, context);
       try {
-        const state = await this.store.loadState(context);
-        console.log("execute query on data", selector, expression, state, context);
+        const state = await this.store.loadState(context, this.constraints);
 
         // apply selector
         return [state.selector(selector).query(expression).track(), null];
@@ -56,24 +51,27 @@ export default async function (scope, runtime, initialState, cstor) {
       }
     },
     async executeInContext(action, data, fn, context, options = {}) {
-      console.log("executing action in scope %s", this.key);
       if (!Array.isArray(fn)) {
         fn = [fn];
       }
 
       try {
         // TODO: check if action is supported
-        // TODO: check if all permissions are satisfied
 
-        const state = await this.store.loadState(context);
+        const state = await this.store.loadState(context, this.constraints);
         const draft = state.draft();
 
+        // TODO: check if all permissions are satisfied
+
         // execute the fn, injecting all helpers and errors
-        const result = await Promise.reduce(fn, (draft, f) => f({ ...action, data }, draft, { scope: _platformApi, helpers: this.helpers, console, errors: runtime.errors }), draft);
+        const result = await Promise.reduce(
+          fn,
+          (draft, f) => f({ ...action, actor: { username: context.actor }, data }, draft, { scope: _platformApi, ...runtime.platform, helpers: this.helpers, console, errors: runtime.errors }),
+          draft
+        );
 
         // commit state if action is not read-only
         if (!options.readOnly) {
-          console.log("committing changes to store", state);
           state.commit(draft);
         }
 
@@ -83,7 +81,6 @@ export default async function (scope, runtime, initialState, cstor) {
       }
     },
     waitForQueries(pattern, { secure = true } = {}) {
-      console.log("setting up query handling for scope", scope.key);
       return runtime.queries.subscribe(pattern, async query => {
         if (secure && !query.context.actor) {
           return query.channel.error({ message: "unauthorized", code: 401 });
@@ -91,23 +88,16 @@ export default async function (scope, runtime, initialState, cstor) {
 
         try {
           if (query.op === "open") {
-            console.log("executing query on %s scope", this.key, query);
-
-            // handle dynamic scopes... loadScope if dynamic ?
-
             // create subscription on this scope with the provided context and selector
             const [queryTracker, error] = await this.queryInContext(query.selector, query.expression, query.options, query.context);
             if (queryTracker) {
               // register subscription (query id, subscription)
-              console.log("tracker", queryTracker);
               queryTrackers[query.id] = { queryTracker, subscription: queryTracker.results.subscribe(result => query.channel.emit(result)) };
             } else {
               throw error;
             }
           } else if (query.op === "snapshot") {
             console.log("get query snapshot");
-
-            // handle dynamic scopes... loadScope if dynamic ?
 
             const queryTracker = this.queryInContext(query.selector, query.expression, query.options, query.context);
             query.channel.emit(queryTracker.snapshot());
@@ -133,16 +123,21 @@ export default async function (scope, runtime, initialState, cstor) {
     stereotype: "publication",
     selector: "$",
     expression: null,
-    options: {},
-    context: {},
+    options: {
+      sort: null,
+      projection: null,
+    },
+    context: {
+      height: null,
+      locale: null,
+    },
   };
 
   let publications = {};
   if (!dynamic) {
     publications = reduce(
-      scope.publications || [],
+      scope.publications || {},
       (pubs, pub) => {
-        console.log("registering publication ", pub.key);
         pubs[pub.key] = runtime.wrapPublication(pub, _api);
         return pubs;
       },
@@ -160,8 +155,7 @@ export default async function (scope, runtime, initialState, cstor) {
     parent() {
       return { systemSubscription: "to-do" };
     },
-    async spawn(scopeKey, initialState) {
-      console.log("spawning child scope %s with initial state", scopeKey, initialState);
+    async spawn(scopeKey, initialState, { cache = true } = {}) {
       const childScope = await runtime.dynamicScope(
         scopeKey,
         {
@@ -169,20 +163,14 @@ export default async function (scope, runtime, initialState, cstor) {
         },
         initialState,
         async dynScope => {
-          console.log("initializing dynamic scope".cyan, dynScope);
-
           // Run all initializers to build initial state
           if (dynScope.initializers && dynScope.initializers.length > 0) {
             const state = await dynScope.store.loadState();
-            console.log("initializing dynamic scope state for %s:%s", dynScope.stereotype, dynScope.key, state, dynScope.store);
             const draft = state.draft();
             try {
-              const context = { scope: _platformApi, console, config: dynScope.config, schema: dynScope.schema };
-              console.log("applying all initializers", state.id, dynScope.initializers);
+              const context = { scope: _platformApi, ...runtime.platform, console, config: dynScope.config, schema: dynScope.schema };
               await Promise.all(dynScope.initializers.map(async initializer => initializer(draft, context)));
-              console.log("all initializers were executed", state);
               state.commit(draft);
-              console.log("after commit state", state);
             } catch (err) {
               console.log("unable to initialize system %s".red, dynScope.key, err);
               state.rollback(draft);
@@ -192,29 +180,29 @@ export default async function (scope, runtime, initialState, cstor) {
           }
 
           dynScope.waitForQueries(dynScope.key);
-
           console.log("scope %s successfully loaded".green, dynScope.key);
           return dynScope;
         }
       );
 
       // keep track of this subscription in the parent scope
-      const childSub = childScope.subscribe("default", { cache: true });
+      const childSub = childScope.subscribe("default", {
+        cache: {
+          data: initialState,
+          excludes: ["messages"],
+        },
+      });
 
       // register this scope in our system
       runtime.events.next({ key: "component:installed:new", component: childScope });
 
-      return {
-        $ref: childSub.asRef(),
-        ...initialState,
-      };
+      return childSub.asRef();
     },
   };
 
   _api.using = function (pubKey, fn) {
     console.log("executing code within publication context", pubKey);
     const pub = publications[pubKey];
-    console.log("resolved pub", pub);
     return pub.$.subscribe(state =>
       fn(state, {
         query(...args) {
@@ -235,14 +223,13 @@ export default async function (scope, runtime, initialState, cstor) {
       if (!scopeSpec.key) {
         scopeSpec.key = runtime.realizeKey(scope.key, data);
       }
-      console.log("scope template is", scope);
       scopeSpec.config = scope.config;
       scopeSpec.schema = scope.schema;
       (scopeSpec.initializers || []).push(...(scope.initializers || []));
       (scopeSpec.finalizers || []).push(...(scope.finalizers || []));
-      Object.assign(scopeSpec.helpers || {}, scope.helpers || {});
+      (scopeSpec.constraints || []).push(...(scope.constraints || []));
 
-      console.log("instantiating dynamic scope ", { ...scope, ...scopeSpec, store: null }, data);
+      Object.assign(scopeSpec.helpers || {}, scope.helpers || {});
       return runtime.wrapScope({ ...scope, ...scopeSpec, store: null }, data, dynamiCstor || cstor);
     };
     return _api;

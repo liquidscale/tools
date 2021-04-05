@@ -31,8 +31,6 @@ export default function () {
       .deploy({ watch: true })
       .subscribe(
         bundle => {
-          console.log("received bundle", bundle);
-
           // monitor bundle activity through bundle.events
         },
         error => console.error(error.message.red),

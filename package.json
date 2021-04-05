@@ -10,7 +10,7 @@
     "lqs": "./src/main.js"
   },
   "scripts": {
-    "test": "mocha test/**/*.test.js"
+    "test": "mocha test/**/collection.test.js"
   },
   "license": "MIT",
   "dependencies": {

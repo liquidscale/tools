@@ -3,8 +3,6 @@ import JWT from "jsonwebtoken";
 
 export default async function (runtime) {
   runtime.config.keyChanged("scopes.security").subscribe(async cfg => {
-    console.log("configuring security scope", cfg || {});
-
     const helpers = {
       async verifyPassword(password, encrypted) {
         // TODO: use bcrypt
@@ -35,9 +33,7 @@ export default async function (runtime) {
       });
       await securityScope.applyConfig(cfg);
 
-      runtime.queries.subscribe(securityScope.key, query => {
-        console.log("executing query on security scope", query);
-      });
+      runtime.queries.subscribe(securityScope.key, query => {});
 
       // register our associated actions
       signinAction(runtime);

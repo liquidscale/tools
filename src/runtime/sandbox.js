@@ -12,6 +12,8 @@ export default function (runtime) {
             schema: null,
             finalizers: [],
             initializers: [],
+            constraints: [],
+            publications: {},
             store: null,
             config: {},
             status: "pending",
@@ -33,6 +35,12 @@ export default function (runtime) {
             store(key) {
               _system.store = key;
             },
+            constraint(spec, fn) {
+              _system.constraints.push({ spec, fn });
+            },
+            publication(key, spec) {
+              _system.publications[key] = { ...spec, key };
+            },
             async getComponent() {
               return runtime.wrapScope(_system, {}, async scope => {
                 console.log("initializing wrapped scope".cyan, scope.key);
@@ -42,30 +50,22 @@ export default function (runtime) {
                 }
 
                 if (isString(_system.store)) {
-                  console.log("resolving store %s", _system.store);
                   scope.store = await runtime.resolve({ stereotype: "store", key: _system.store });
-                  console.log("scope %s store was successfully resolved".green, scope.store);
                 }
 
                 // Run all initializers to build initial state
                 if (_system.initializers.length > 0) {
                   const state = await scope.store.loadState();
-                  console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
                   const draft = state.draft();
                   try {
-                    const context = { scope, console, config: scope.config, schema: scope.schema };
+                    const context = { scope, console, ...runtime.platform, config: scope.config, schema: scope.schema };
                     await Promise.all(_system.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
-                    console.log("all initializers were executed", state);
                   } catch (err) {
                     console.log("unable to initialize system %s".red, _system.key, err);
                     state.rollback(draft);
                   }
                 }
-
-                // publish all our publications
-                // runtime.publishAll(_system.publications);
-                // runtime.subscribeAll(_system.subscriptions);
 
                 scope.waitForQueries(_system.key);
 
@@ -84,6 +84,8 @@ export default function (runtime) {
             key,
             finalizers: [],
             initializers: [],
+            constraints: [],
+            publications: {},
             schema: null,
           };
           return {
@@ -96,6 +98,12 @@ export default function (runtime) {
             },
             finalizer(fn) {
               _scope.finalizers.push(fn);
+            },
+            constraint(spec, fn) {
+              _scope.constraints.push({ spec, fn });
+            },
+            publication(key, spec) {
+              _scope.publications[key] = { ...spec, key };
             },
             async getComponent() {
               return runtime.wrapScope(_scope, {}, async scope => {
@@ -117,10 +125,9 @@ export default function (runtime) {
                   console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
                   const draft = state.draft();
                   try {
-                    const context = { scope, console, config: scope.config, schema: scope.schema };
+                    const context = { scope, console, ...runtime.platform, config: scope.config, schema: scope.schema };
                     await Promise.all(_scope.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
-                    console.log("all initializers were executed", state);
                   } catch (err) {
                     console.log("unable to initialize system %s".red, scope.key, err);
                     state.rollback(draft);

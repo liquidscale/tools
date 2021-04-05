@@ -40,12 +40,9 @@ export default function (key, cfg, runtime) {
         }
       }
 
-      console.log("==> RECEIVED MESSAGE", message);
       if (message.query) {
         if (message.op === "open") {
           message.options = message.options || {};
-
-          console.log("executing query in context", req.context);
 
           const query = {
             id: message.query,
@@ -72,14 +69,20 @@ export default function (key, cfg, runtime) {
                       data = data[0];
                     }
                   }
-                  console.log("ws: producing query %s result", query.id, data);
-                  ws.send(JSON.stringify({ sid: query.id, type, data }));
-                } else {
-                  console.log("ws: skipping empty or undefined data for query %s", query.id);
+                  try {
+                    ws.send(JSON.stringify({ sid: query.id, type, data }));
+                  } catch (err) {
+                    console.log("error sending result. let's assume the socket is closed for now", err.message);
+                    runtime.queries.execute({ id: message.query, op: "close", context: { actor: null } });
+                  }
                 }
               },
               error(error) {
-                ws.send(JSON.stringify({ sid: query.id, type: "error", error }));
+                try {
+                  ws.send(JSON.stringify({ sid: query.id, type: "error", error }));
+                } catch (err) {
+                  console.error("query-error", err);
+                }
               },
             },
           };
@@ -95,14 +98,26 @@ export default function (key, cfg, runtime) {
           context: { ...req.context, actor: get(message.tokenInfo, "username"), permissions: get(message.tokenInfo, "scope") },
           channel: {
             emit(data, type = "result") {
-              ws.send(JSON.stringify({ sid: message.action, type, data }));
+              try {
+                ws.send(JSON.stringify({ sid: message.action, type, data }));
+              } catch (err) {
+                console.error("action-emit", err);
+              }
             },
             error(error) {
               console.error("action error", error);
-              ws.send(JSON.stringify({ sid: message.action, type: "error", error }));
+              try {
+                ws.send(JSON.stringify({ sid: message.action, type: "error", error }));
+              } catch (err) {
+                console.error("action-error", err);
+              }
             },
             ack() {
-              ws.send(JSON.stringify({ sid: message.action, type: "ack" }));
+              try {
+                ws.send(JSON.stringify({ sid: message.action, type: "ack" }));
+              } catch (err) {
+                console.error("action-ack", err);
+              }
             },
           },
         };

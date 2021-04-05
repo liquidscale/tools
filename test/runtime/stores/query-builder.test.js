@@ -1,8 +1,8 @@
 import mocha from "mocha";
 const { describe, it } = mocha;
 import { expect } from "chai";
-import { queryBuilder } from "../../../src/runtime/stores/query-builder.js";
 import sinon from "sinon";
+import { queryBuilder } from "../../../src/runtime/stores/query-builder.js";
 
 const USER = {
   username: "u1",

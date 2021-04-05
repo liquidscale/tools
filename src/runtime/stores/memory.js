@@ -4,6 +4,7 @@ import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
 import Query from "./mongo-query.js";
 import shortid from "shortid-36";
+import jp from "jsonpath";
 
 const { last, get, findIndex } = lodash;
 
@@ -40,33 +41,26 @@ export default function (key, config) {
 
   const publisher = new BehaviorSubject();
 
-  const stateFactory = function ({ initialState, height, locale = "en" } = {}) {
-    console.log("constructing state for store %s".gray, key, initialState, height);
-
+  const stateFactory = function ({ initialState, height, locale = "en", ...context } = {}, constraints = []) {
     const state = {
       id: shortid.generate(),
       locale,
       draft() {
-        console.log("create draft", state);
         return createDraft(state.data);
       },
       commit(draft) {
-        console.log("committing changes", state.id);
         state.height++;
         try {
           state.data = finishDraft(draft, patches => {
-            console.log(state.id, patches);
             const newFrame = {
               height: state.height,
               ts: new Date().getTime(),
               locale,
               patches,
             };
-            console.log("new state is", state);
             _state.frames.push(newFrame);
           });
 
-          console.log("committed state", state);
           publisher.next(state.data);
 
           // check if we need to create a snapshot
@@ -105,8 +99,6 @@ export default function (key, config) {
 
     const data = snapshot.length > 0 ? snapshot[0].data : initialState || {};
 
-    console.log("loaded base data", data);
-
     // retrieve all frames after our computed height
     const frames = new Query(_state.frames).find(frameQuery).sort({ height: 1 }).get();
     if (frames.length > 0) {
@@ -116,8 +108,6 @@ export default function (key, config) {
       state.data = data;
       state.height = snapshot.length > 0 ? snapshot[0].height : height || 0;
     }
-
-    console.log("final state data", state.data);
 
     if (!publisher.getValue()) {
       publisher.next(state.data);
@@ -139,8 +129,8 @@ export default function (key, config) {
       }
       return stateFactory({ height: 0 });
     },
-    async loadState(context) {
-      return stateFactory(context);
+    async loadState(context, constraints = []) {
+      return stateFactory(context, constraints);
     },
     async injectSnapshot(snapshot) {
       if (!snapshot.ts) {
@@ -154,8 +144,6 @@ export default function (key, config) {
         _state.snapshots.push(snapshot);
       }
     },
-    applyConfig(cfg) {
-      console.log("applying new config to store memory:", key, cfg);
-    },
+    applyConfig(cfg) {},
   };
 }

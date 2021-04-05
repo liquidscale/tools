@@ -1,15 +1,14 @@
 import { BehaviorSubject } from "rxjs";
 
 export default function (spec, scope) {
-  console.log("installing publication ", spec.key);
   const _state = new BehaviorSubject();
 
+  spec.stereotype = spec.stereotype || "publication";
+
   setTimeout(async function () {
-    console.log("connecting publication to scope", scope.key);
     const [queryTracker, error] = await scope.queryInContext(spec.selector, spec.expression, spec.options, spec.context);
     if (queryTracker) {
       queryTracker.results.subscribe(result => {
-        console.log("received new state for publication %s:%s", scope.key, spec.key, result);
         _state.next({ scope, result });
       });
     } else if (error) {

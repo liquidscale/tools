@@ -32,8 +32,6 @@ export default function (runtime) {
 
           try {
             if (query.op === "open") {
-              console.log("executing query on user scope", query);
-
               // instantiate the target scope for the specified user
               const userScope = await _scope.loadScope(query.context.actor);
 

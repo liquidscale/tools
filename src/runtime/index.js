@@ -32,6 +32,7 @@ import errors from "./errors.js";
 import publicationSpi from "./publication-spi.js";
 import subscriptionSpi from "./subscription-spi.js";
 import jsexpr from "jsexpr";
+import { Collection } from "./platform/collection.js";
 
 export function runtimeFactory(options = {}) {
   console.log("instantiating runtime ".green);
@@ -41,13 +42,17 @@ export function runtimeFactory(options = {}) {
   const actions = new Subject();
   const queries = new Subject();
 
+  const platform = {
+    Collection,
+  };
+
   const spi = {
     id: shortid.generate(),
     events,
     errors,
+    platform,
     actions: {
       subscribe(pattern, observer) {
-        console.log("registering action handler", pattern);
         return actions.pipe(filter(action => matcher.isMatch(action.key, pattern))).subscribe(observer);
       },
       execute(action) {
@@ -81,19 +86,17 @@ export function runtimeFactory(options = {}) {
       return scopeSpi(scope, this, initialState, cstor);
     },
     dynamicScope(factoryKey, spec, initialState, cstor) {
-      console.log("instantiating dynamic scope", factoryKey, spec, initialState, cstor);
       const templateScope = this.registry.findComponent({ stereotype: "scope", key: factoryKey });
       if (templateScope) {
         return templateScope.dynamicScope(spec, initialState, cstor);
       } else {
-        throw new Error("cannot find dynamic scope template" + factoryKey);
+        throw new Error("cannot find dynamic scope template " + factoryKey);
       }
     },
     wrapConfig(cfg) {
       return configSpi(cfg, this);
     },
     schema(spec) {
-      console.log("wrapping schema", spec);
       if (spec) {
         return schemaSpi(spec, this);
       }
@@ -102,7 +105,6 @@ export function runtimeFactory(options = {}) {
       if (type === "memory") {
         const store = memoryStore(key, config, this);
         if (config.initialState) {
-          console.log("initializing store state", key, config.initialState);
           store.initState(config.initialState);
         }
         return store;
@@ -116,8 +118,8 @@ export function runtimeFactory(options = {}) {
     wrapPublication(spec, scope) {
       return publicationSpi(spec, scope, this);
     },
-    wrapSubscription(scope, pubKey, spec) {
-      return subscriptionSpi(scope, pubKey, spec, this);
+    wrapSubscription(scope, pub, spec) {
+      return subscriptionSpi(scope, pub, spec, this);
     },
     wrapAction(comp) {
       return actionSpi(comp.impl, this, comp);
