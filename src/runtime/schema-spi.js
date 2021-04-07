@@ -9,10 +9,15 @@ export default function (schemaSpec, runtime) {
 
   let spec = schemaSpec;
   if (isString(schemaSpec)) {
-    spec = runtime.findComponent({ stereotype: "schema", key: schemaSpec });
+    spec = runtime.resolve({ stereotype: "schema", key: schemaSpec });
   }
 
-  const ajv = new Ajv.default({ strict: false, strictSchema: false });
+  async function loadSchema(ref) {
+    console.log("resolving ref", ref);
+    return {};
+  }
+
+  const ajv = new Ajv.default({ strict: false, strictSchema: false, loadSchema });
   ajvKeywords(ajv);
   ajv.addFormat("date-time", {
     validate: dateTimeString => dateTimeString,
@@ -42,7 +47,6 @@ export default function (schemaSpec, runtime) {
       ],
     },
   });
-  const validate = ajv.compile(spec);
 
   return {
     getField(key) {
@@ -55,7 +59,8 @@ export default function (schemaSpec, runtime) {
         return field;
       }
     },
-    normalize(data) {
+    async normalize(data) {
+      const validate = await ajv.compileAsync(await spec);
       const valid = validate(data);
       if (valid) {
         return [data, null];

@@ -8,7 +8,7 @@ import { BehaviorSubject } from "rxjs";
 import { logger } from "../logger.js";
 
 import lodash from "lodash";
-const { isNumber, isNaN, isFunction } = lodash;
+const { isNumber, isNaN, isFunction, remove } = lodash;
 
 const log = logger.child({ module: "collection" });
 
@@ -88,7 +88,7 @@ export function Collection() {
           subscriptionStreams.push(
             (function (index) {
               return val.subscribe(value => {
-                log.debug("update value at %d", index, value);
+                log.trace("update value at %d", index, value);
                 const nextValue = [...elements.getValue()];
                 nextValue[index] = value;
                 log.trace("producing next value", nextValue);
@@ -125,8 +125,20 @@ export function Collection() {
         subscriptionStreams.forEach(s => s.unsubscribe());
       },
       subscribe(observer) {
-        log.debug("creating change subscription", observer);
         return elements.subscribe(() => observer(elements.getValue().map(elm => (elm._value ? elm.getValue() : elm))));
+      },
+      remove(filter) {
+        const values = elements.getValue();
+        const removed = remove(values, filter);
+        elements.next([...values]);
+        if (removed.length === 1) {
+          return removed[0];
+        } else {
+          return removed;
+        }
+      },
+      clear() {
+        elements.next([]);
       },
     },
     subscriptionHandler

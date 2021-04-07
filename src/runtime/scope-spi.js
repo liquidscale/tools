@@ -188,22 +188,29 @@ export default async function (scope, runtime, initialState, cstor) {
     mount(target, { mountpoint } = {}) {
       if (target) {
         target.$mountId = runtime.idGen();
-        mountpoints[target.$mountId] = target.subscribe(function mountpointObserver(data) {
-          log.debug("mounted target %s(%s) has changed. We need to refresh all publications: %s. change =", mountpoint, target.$mountId, Object.keys(publications), data);
-          forEach(publications, pub => pub.refresh(mountpoint, data));
-        });
+        mountpoints[target.$mountId] = {
+          target,
+          subscription: target.subscribe(function mountpointObserver(data) {
+            log.debug("mounted target %s(%s) has changed. We need to refresh all publications: %s. change =", mountpoint, target.$mountId, Object.keys(publications), data);
+            forEach(publications, pub => pub.refresh(mountpoint, data));
+          }),
+        };
         return target;
       }
     },
-    unmount(target) {
-      if (target) {
-        const subscription = mountpoints[target.$mountId];
-        if (subscription) {
-          subscription.unsubscribe();
+    unmount(targetRef) {
+      if (targetRef) {
+        const mountpoint = mountpoints[targetRef.$ref];
+        if (mountpoint && mountpoint.subscription) {
+          mountpoint.subscription.unsubscribe();
+          delete mountpoints[targetRef.$ref];
         } else {
-          log.info("unmounted target", target);
+          log.info("unmounted target", targetRef);
         }
       }
+    },
+    finalize(subscriptionRef) {
+      log.debug("finalizing scope associated with subscription ref", subscriptionRef);
     },
   };
 

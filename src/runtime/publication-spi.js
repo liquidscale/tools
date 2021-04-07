@@ -9,6 +9,7 @@ export default function (spec, scope, runtime) {
 
   spec.stereotype = spec.stereotype || "publication";
 
+  //FIXME: there's something with store initialization. If we don't wait a bit, store is not ready in scope...
   setTimeout(async function () {
     const [queryTracker, error] = await scope.queryInContext(spec.selector, spec.expression, spec.options, spec.context);
     if (queryTracker) {
@@ -18,7 +19,7 @@ export default function (spec, scope, runtime) {
       log.error("error", error);
       throw new Error("unable to install publication", spec.key, error);
     }
-  }, 500);
+  }, 750);
 
   async function handleQuery(query) {
     if (query.target === spec.key) {
@@ -27,13 +28,14 @@ export default function (spec, scope, runtime) {
         log.debug("open query on scope %s using pub %s", scope.key, spec.key, query);
         querySubscription = _data.subscribe(data => {
           if (data) {
-            log.debug("refreshing query %s with new data", query.id, JSON.stringify(data, 2, 2));
+            log.trace("refreshing query %s with new data", query.id, JSON.stringify(data, 2, 2));
             const qb = queryBuilder(data);
             const result = qb.selector(query.selector).query(query.expression, query.options).result({ single: query.options.single });
-            log.debug("updated query result", JSON.stringify(result, 2, 2));
+            log.trace("updated query result", JSON.stringify(result, 2, 2));
             query.channel.emit(result);
           }
         });
+        query.channel.ack(query.id);
       } else if (query.op === "snapshot") {
         log.debug("get query snapshot on scope %s using pub %s", scope.key, spec.key, query);
         const data = _data.getValue();
@@ -67,7 +69,7 @@ export default function (spec, scope, runtime) {
       if (data) {
         const intersection = jp.query(data, mountpoint || "$");
         if (intersection.length > 0) {
-          log.debug("refreshing publication data %s(%s)", spec.key, scope.key);
+          log.trace("refreshing publication data %s(%s)", spec.key, scope.key);
           _tracker.getValue().reload();
         } else {
           log.debug("change not applicable to this publication. skipping");

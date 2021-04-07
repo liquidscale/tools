@@ -43,6 +43,17 @@ export function queryBuilder(data, publisher, { selector, query, single, id } = 
       result = data[0];
     }
 
+    if (isArray(data)) {
+      if (query.options.sort) {
+      }
+
+      if (query.options.skip) {
+      }
+
+      if (query.options.limit) {
+      }
+    }
+
     if (result) {
       return normalizeField(result);
     }
@@ -63,13 +74,13 @@ export function queryBuilder(data, publisher, { selector, query, single, id } = 
       return this;
     },
     query(expression, { sort, limit, skip } = {}) {
-      if (expression && Array.isArray(data)) {
+      if (Array.isArray(data)) {
         const q = new Query(data);
-        if (Object.keys(expression).length > 0) {
-          const result = q.find(expression, { sort, limit, skip }).get();
-          return queryBuilder(result, publisher, { id, selector, single, query: { expression, options: { sort, limit, skip, single } } });
-        } else if (isFunction(expression)) {
+        if (isFunction(expression)) {
           const result = q.filter(expression).sort(sort).skip(skip).limit(limit).get();
+          return queryBuilder(result, publisher, { id, selector, single, query: { expression, options: { sort, limit, skip, single } } });
+        } else {
+          const result = q.find(expression || {}, { sort, limit, skip }).get();
           return queryBuilder(result, publisher, { id, selector, single, query: { expression, options: { sort, limit, skip, single } } });
         }
       }
@@ -86,7 +97,7 @@ export function queryBuilder(data, publisher, { selector, query, single, id } = 
           publisher.refresh();
         },
         snapshot(options = {}) {
-          log.debug("computing query result snapshot", this.cached);
+          log.trace("computing query result snapshot", this.cached);
           let snapshot = null;
 
           if (!this.cached) return;
@@ -102,16 +113,16 @@ export function queryBuilder(data, publisher, { selector, query, single, id } = 
             snapshot = new Query(snapshot || this.cached).find(this.query.expression, this.query.options).get();
           }
 
-          log.debug("producing snapshot result", snapshot, this.cached);
+          log.trace("producing snapshot result", snapshot, this.cached);
           return result(options, snapshot || this.cached);
         },
       };
 
       const stream = publisher.subscribe(newState => {
-        log.debug("updating our cached data", newState);
+        log.trace("updating our cached data", newState);
         queryResultTracker.cached = newState.data;
         const result = queryResultTracker.snapshot({ single });
-        log.debug("emitting a new query result", JSON.stringify(result, 2, 2));
+        log.trace("emitting a new query result", JSON.stringify(result, 2, 2));
         queryResultTracker.results.next(result);
       });
 

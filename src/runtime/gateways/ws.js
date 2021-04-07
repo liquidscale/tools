@@ -88,6 +88,14 @@ export default function (key, cfg, runtime) {
                   log.error("query-error", err);
                 }
               },
+              ack(sid) {
+                try {
+                  ws.send(JSON.stringify({ sid: sid || query.id, type: "ack" }));
+                } catch (err) {
+                  log.error("query-ack-error", err);
+                  ws.send(JSON.stringify({ sid: query.id, type: "error", error }));
+                }
+              },
             },
           };
 
@@ -121,6 +129,7 @@ export default function (key, cfg, runtime) {
                 ws.send(JSON.stringify({ sid: message.action, type: "ack" }));
               } catch (err) {
                 log.error("action-ack", err);
+                ws.send(JSON.stringify({ sid: message.action, type: "error", error: { message: err.message } }));
               }
             },
           },
