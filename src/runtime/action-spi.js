@@ -1,3 +1,7 @@
+import lodash from "lodash";
+
+const { isFunction } = lodash;
+
 export default function (spec, runtime) {
   const log = runtime.logger.child({ internal: true, module: "action-spi", key: spec.key });
 
@@ -17,6 +21,31 @@ export default function (spec, runtime) {
     return spec.reducers;
   }
 
+  async function evaluatePermissions(actionReq, payload, scope) {
+    if (spec.permissions && spec.permissions.length > 0) {
+      const state = await scope.getState(actionReq.context);
+      return spec.permissions.reduce(
+        (result, rule) => {
+          console.log("checking permission rule", rule);
+          if (isFunction(rule.if) && result[0]) {
+            console.log("executing", rule.if.toString(), state, { data: payload, ...actionReq.context });
+            const valid = rule.if.call(null, { state: state.data, data: payload, ...actionReq.context });
+            if (rule.deny) {
+              return [!valid, valid ? { error: { message: rule.hint || "not-enough-permissions" } } : null];
+            } else {
+              return [valid, valid ? null : { error: { message: rule.hint || "not-enough-permissions" } }];
+            }
+          } else {
+            return result;
+          }
+        },
+        [true, null]
+      );
+    } else {
+      return [true, null];
+    }
+  }
+
   runtime.actions.subscribe(action.key, async function (req) {
     log.debug("executing action", req);
 
@@ -26,7 +55,7 @@ export default function (spec, runtime) {
       return req.channel.error({ message: "validation error", code: 100, errors });
     }
 
-    log.debug("received normalized payload", payload);
+    log.trace("received normalized payload", payload);
 
     // bind to our target scope (if specified)
     let scope = null;
@@ -35,24 +64,37 @@ export default function (spec, runtime) {
       scope = await runtime.resolve({ stereotype: "scope", key: scopeKey });
     }
 
-    log.debug("resolved target scope", scope);
+    if (scope) {
+      log.trace("resolved target scope", scope);
 
-    //TODO: check if action can be applied on this scope
-    //TODO: check action execution permissions
+      // check if action can be applied on this scope
+      if (await scope.isSupported(action.key, req)) {
+        // check action execution permissions
+        const [allowed, error] = await evaluatePermissions(req, payload, scope);
+        if (allowed) {
+          const reducers = await resolveReducers();
+          log.trace("applying all reducers", reducers);
+          const [result, error] = await scope.executeInContext(action, payload, reducers, req.context);
 
-    const reducers = await resolveReducers(); // should be provided by scope
-
-    log.debug("applying all reducers", reducers);
-    const [result, error] = await scope.executeInContext(action, payload, reducers, req.context);
-
-    log.debug("received action result", result);
-
-    if (result) {
-      req.channel.emit(result.data || result, result.type);
-    } else if (error) {
-      req.channel.error(error);
+          if (result) {
+            log.trace("received action result", result);
+            req.channel.emit(result.data || result, result.type);
+          } else if (error) {
+            log.error(error);
+            req.channel.error(error);
+          } else {
+            req.channel.ack();
+          }
+        } else {
+          log.error(error);
+          req.channel.error(error);
+        }
+      } else {
+        log.error("unsupported action", action.key, scope.key);
+        req.channel.error({ message: "unsupported-action" });
+      }
     } else {
-      req.channel.ack();
+      req.channel.error({ message: "invalid-scope" });
     }
   });
 

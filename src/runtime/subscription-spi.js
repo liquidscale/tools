@@ -30,9 +30,9 @@ export default function (scope, pub, spec = {}, runtime) {
   // TODO: our subscription is anonymous, unknown to the publication. might be worth it to register it with pub for management, etc.
   const subscription = pub.$.subscribe(data => {
     if (data) {
-      log.debug("publication %s(%s) has reported changes", pub.key, scope.key, data, { subscription: _sub.id });
+      log.trace("publication %s(%s) has reported changes", pub.key, scope.key, data, { subscription: _sub.id });
       if (_sub.cache) {
-        log.debug("updating our cache", data);
+        log.trace("updating our cache", data);
         // TODO: We filter out any non-cached fields
         cachedState.next({ $ref: _sub.id, ...data });
       } else {

@@ -36,8 +36,15 @@ export default async function (scope, runtime, initialState, cstor) {
     finalizers: scope.finalizers || [],
     constraints: scope.constraints || [],
     store: scope.store,
+    async isSupported(actionKey, actionSpec) {
+      //FIXME: all supported for now
+      return true;
+    },
     getPublication(key = "default") {
       return publications[key];
+    },
+    async getState(context) {
+      return this.store.loadState(context);
     },
     async applyConfig(cfg) {
       scope.config = cfg;
@@ -191,7 +198,7 @@ export default async function (scope, runtime, initialState, cstor) {
         mountpoints[target.$mountId] = {
           target,
           subscription: target.subscribe(function mountpointObserver(data) {
-            log.debug("mounted target %s(%s) has changed. We need to refresh all publications: %s. change =", mountpoint, target.$mountId, Object.keys(publications), data);
+            log.trace("mounted target %s(%s) has changed. We need to refresh all publications: %s. change =", mountpoint, target.$mountId, Object.keys(publications), data);
             forEach(publications, pub => pub.refresh(mountpoint, data));
           }),
         };

@@ -46,6 +46,7 @@ export function runtimeFactory(options = {}) {
 
   const platform = {
     Collection,
+    Buffer,
   };
 
   const spi = {
