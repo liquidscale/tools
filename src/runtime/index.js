@@ -1,6 +1,6 @@
+import { logger } from "./logger.js";
 import { Subject } from "rxjs";
 import { filter } from "rxjs/operators/index.js";
-import shortid from "shortid-36";
 import { loader } from "./loader.js";
 import compiler from "./compiler.js";
 import installer from "./installer.js";
@@ -33,8 +33,10 @@ import publicationSpi from "./publication-spi.js";
 import subscriptionSpi from "./subscription-spi.js";
 import jsexpr from "jsexpr";
 import { Collection } from "./platform/collection.js";
+import { hri } from "human-readable-ids";
 
 export function runtimeFactory(options = {}) {
+  const log = logger.child({ module: "runtime" });
   console.log("instantiating runtime ".green);
 
   // This is the internal api of the runtime instance.
@@ -47,11 +49,16 @@ export function runtimeFactory(options = {}) {
   };
 
   const spi = {
-    id: shortid.generate(),
+    id: hri.random(),
     events,
     errors,
     platform,
+    logger,
+    idGen() {
+      return hri.random();
+    },
     actions: {
+      $: actions,
       subscribe(pattern, observer) {
         return actions.pipe(filter(action => matcher.isMatch(action.key, pattern))).subscribe(observer);
       },
@@ -60,6 +67,7 @@ export function runtimeFactory(options = {}) {
       },
     },
     queries: {
+      $: queries,
       subscribe(scopePattern, observer) {
         return queries.pipe(filter(query => matcher.isMatch(query.scope, scopePattern))).subscribe(observer);
       },
@@ -119,6 +127,7 @@ export function runtimeFactory(options = {}) {
       return publicationSpi(spec, scope, this);
     },
     wrapSubscription(scope, pub, spec) {
+      log.debug("creating spi subscription", scope.key, pub, spec);
       return subscriptionSpi(scope, pub, spec, this);
     },
     wrapAction(comp) {
@@ -133,10 +142,8 @@ export function runtimeFactory(options = {}) {
     async resolve(...args) {
       return this.registry.resolve(...args);
     },
-    publishAll(publications) {},
-    subscribeAll(subscriptions) {},
     dynamicPattern(scopeKey) {
-      const idx = scopeKey.indexOf("/$");
+      const idx = scopeKey.indexOf("/${");
       if (idx !== -1) {
         return `${scopeKey.substring(0, idx)}*`;
       } else {

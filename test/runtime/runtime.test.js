@@ -26,4 +26,18 @@ describe("runtime", function () {
     expect(dynScope).not.to.be.undefined;
     expect(cstor.callCount).to.equal(1);
   });
+
+  describe("dynamic pattern", function () {
+    it("shoud properly parse dynamic pattern", function () {
+      const pattern = runtime.dynamicPattern("chatroom/room/${id}");
+      expect(pattern).to.equal("chatroom/room*");
+    });
+  });
+
+  describe("realize key", function () {
+    it("should generate a dynamic key from data", function () {
+      const key = runtime.realizeKey("chatroom/room/${id}", { id: "room1" });
+      expect(key).to.equal("chatroom/room/room1");
+    });
+  });
 });

@@ -10,7 +10,7 @@
     "lqs": "./src/main.js"
   },
   "scripts": {
-    "test": "mocha test/**/collection.test.js"
+    "test": "mocha ./test/**/*.test.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -20,12 +20,15 @@
     "ajv-keywords": "^5.0.0",
     "bcryptjs": "^2.4.3",
     "bluebird": "^3.7.2",
+    "bunyan": "^1.8.15",
+    "bunyan-format": "^0.2.1",
     "chai": "^4.3.4",
     "chokidar": "^3.5.1",
     "colors": "^1.4.0",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "fs-extra": "^9.1.0",
+    "human-readable-ids": "^1.0.4",
     "immer": "^9.0.0",
     "js-yaml": "^4.0.0",
     "jsexpr": "^0.9.3",

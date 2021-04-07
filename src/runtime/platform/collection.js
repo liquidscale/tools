@@ -5,8 +5,12 @@
  * be generated in height-based stores.
  */
 import { BehaviorSubject } from "rxjs";
+import { logger } from "../logger.js";
+
 import lodash from "lodash";
-const { isNumber, isNaN } = lodash;
+const { isNumber, isNaN, isFunction } = lodash;
+
+const log = logger.child({ module: "collection" });
 
 const checkNumber = function (prop) {
   try {
@@ -69,7 +73,7 @@ export function Collection() {
           };
         };
       } else if (["filter", "map", "forEach", "reduce"].indexOf(prop) !== -1) {
-        return target.elements[prop];
+        return target.elements.getValue().map((e = isFunction(e.getValue) ? e.getValue() : e))[prop];
       }
       return Reflect.get(target, prop, receiver);
     },
@@ -77,16 +81,17 @@ export function Collection() {
 
   return new Proxy(
     {
+      _lqsColl: true,
       push(val) {
         const nextValue = [...elements.getValue()];
         if (val._value) {
-          console.log("adding a subscription, let's track it!");
           subscriptionStreams.push(
             (function (index) {
               return val.subscribe(value => {
-                console.log("received new subscription value", index, value);
+                log.debug("update value at %d", index, value);
                 const nextValue = [...elements.getValue()];
                 nextValue[index] = value;
+                log.trace("producing next value", nextValue);
                 elements.next(nextValue);
               });
             })(elements.getValue().length)
@@ -97,6 +102,15 @@ export function Collection() {
           nextValue.push(val);
           elements.next(nextValue);
         }
+      },
+      toArray() {
+        return elements.getValue().map(v => {
+          if (v._value) {
+            return v.getValue();
+          } else {
+            return v;
+          }
+        });
       },
       toJSON() {
         return elements.getValue().map(v => {
@@ -109,6 +123,10 @@ export function Collection() {
       },
       close() {
         subscriptionStreams.forEach(s => s.unsubscribe());
+      },
+      subscribe(observer) {
+        log.debug("creating change subscription", observer);
+        return elements.subscribe(() => observer(elements.getValue().map(elm => (elm._value ? elm.getValue() : elm))));
       },
     },
     subscriptionHandler

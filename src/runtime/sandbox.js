@@ -6,7 +6,8 @@ export default function (runtime) {
   return {
     provide: function (fn) {
       const safeRT = {
-        system(key) {
+        console,
+        system(key, { autoCreate = true } = {}) {
           const _system = {
             key,
             schema: null,
@@ -17,9 +18,9 @@ export default function (runtime) {
             store: null,
             config: {},
             status: "pending",
+            autoCreate,
           };
 
-          // FIXME: put this into a system-scope component
           return {
             key,
             stereotype: "system",
@@ -58,7 +59,7 @@ export default function (runtime) {
                   const state = await scope.store.loadState();
                   const draft = state.draft();
                   try {
-                    const context = { scope, console, ...runtime.platform, config: scope.config, schema: scope.schema };
+                    const context = { scope: scope.getPlatformApi(), console, ...runtime.platform, config: scope.config, schema: scope.schema };
                     await Promise.all(_system.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
                   } catch (err) {
@@ -66,8 +67,6 @@ export default function (runtime) {
                     state.rollback(draft);
                   }
                 }
-
-                scope.waitForQueries(_system.key);
 
                 // Add extra methods for system scopes
                 scope.getStatus = () => _system.status;
@@ -79,7 +78,7 @@ export default function (runtime) {
             },
           };
         },
-        scope(key) {
+        scope(key, { autoCreate = true } = {}) {
           const _scope = {
             key,
             finalizers: [],
@@ -87,6 +86,7 @@ export default function (runtime) {
             constraints: [],
             publications: {},
             schema: null,
+            autoCreate,
           };
           return {
             key,
@@ -125,7 +125,7 @@ export default function (runtime) {
                   console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
                   const draft = state.draft();
                   try {
-                    const context = { scope, console, ...runtime.platform, config: scope.config, schema: scope.schema };
+                    const context = { scope: scope.getPlatformApi(), console, ...runtime.platform, config: scope.config, schema: scope.schema };
                     await Promise.all(_scope.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
                   } catch (err) {
@@ -133,8 +133,6 @@ export default function (runtime) {
                     state.rollback(draft);
                   }
                 }
-
-                scope.waitForQueries(scope.key);
 
                 console.log("scope %s successfully loaded".green, scope.key);
                 return scope;

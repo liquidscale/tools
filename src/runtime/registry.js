@@ -3,11 +3,12 @@ import Observable from "rxjs";
 import Promise from "bluebird";
 
 export default function (runtime) {
+  const log = runtime.logger.child({ internal: true, module: "registry" });
   const components = [];
 
   runtime.events.pipe(filter(event => event.key.indexOf("component:installed:") === 0)).subscribe(({ key, component }) => {
     if (key.indexOf(":new") !== -1) {
-      console.log("registering %s %s".gray, component.stereotype, component.key);
+      log.trace("registering %s %s".gray, component.stereotype, component.key);
       components.push(component);
       runtime.events.next({ key: "component:registered", component });
     } else if (key.indexOf(":updated") !== -1) {
@@ -22,7 +23,7 @@ export default function (runtime) {
   });
 
   runtime.events.pipe(filter(event => event.key.indexOf("component:removed") === 0)).subscribe(({ component }) => {
-    console.log("unregistering %s", component.stereotype, component.key);
+    log.trace("unregistering %s", component.stereotype, component.key);
     removeBy(components, c => c.key === component.key && c.stereotype == component.stereotype);
     runtime.events.next({ key: "component:unregistered", component });
   });
@@ -57,7 +58,7 @@ export default function (runtime) {
 
   return {
     addComponent(component) {
-      console.log("registering %s %s".gray, component.stereotype, component.key);
+      log.trace("registering %s %s".gray, component.stereotype, component.key);
       components.push(component);
     },
     components() {

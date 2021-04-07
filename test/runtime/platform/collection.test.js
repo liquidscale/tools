@@ -57,4 +57,18 @@ describe("collection", function () {
     const r2 = JSON.stringify(collection);
     console.log(r2);
   });
+
+  it("should monitor all changes in subscription and expose an observable interface", function () {
+    collection.push(sub1);
+    collection.push(sub2);
+
+    collection.subscribe(values => {
+      if (values) {
+        console.log("received values", values);
+      }
+    });
+
+    collection.push(sub3);
+    sub2.next({ $ref: { id: "sub2" }, value: 2.1, active: false });
+  });
 });

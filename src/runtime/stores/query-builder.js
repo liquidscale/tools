@@ -2,19 +2,62 @@ import jp from "jsonpath";
 import Query from "./mongo-query.js";
 import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
+import { logger } from "../logger.js";
+import { hri } from "human-readable-ids";
 
-const { isFunction, isArray } = lodash;
+const { isFunction, isArray, reduce, isObject } = lodash;
 
-export function queryBuilder(data, publisher, { selector, query } = {}) {
+export function queryBuilder(data, publisher, { selector, query, single, id } = {}) {
+  id = id || hri.random();
+  const log = logger.child({ internal: true, module: "query-builder", id });
+
+  function normalizeField(field) {
+    if (field) {
+      if (field._lqsColl) {
+        return field.toArray();
+      }
+
+      if (isObject(field)) {
+        return reduce(
+          field,
+          (obj, val, key) => {
+            obj[key] = normalizeField(val);
+            return obj;
+          },
+          field
+        );
+      } else if (Array.isArray(field)) {
+        return field.map(normalizeField);
+      } else {
+        return field;
+      }
+    }
+  }
+
+  function result(options = {}, result) {
+    if (!result) {
+      result = data;
+    }
+
+    if (options.single && isArray(data) && data.length > 0) {
+      result = data[0];
+    }
+
+    if (result) {
+      return normalizeField(result);
+    }
+  }
+
   return {
+    id,
     selector(expr) {
       if (expr) {
         const result = jp.query(data, expr);
         if (result.length > 0) {
-          return queryBuilder(result[0], publisher, { selector: expr, query });
+          return queryBuilder(result[0], publisher, { selector: expr, query, id, single });
         } else {
-          console.log("nothing could be selected by query", expr, data);
-          return queryBuilder(null, publisher, { selector: expr, query });
+          log.debug("nothing could be selected by query", expr, data);
+          return queryBuilder(null, publisher, { selector: expr, query, id, single });
         }
       }
       return this;
@@ -24,27 +67,26 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
         const q = new Query(data);
         if (Object.keys(expression).length > 0) {
           const result = q.find(expression, { sort, limit, skip }).get();
-          return queryBuilder(result, publisher, { selector, query: { expression, options: { sort, limit, skip } } });
+          return queryBuilder(result, publisher, { id, selector, single, query: { expression, options: { sort, limit, skip, single } } });
         } else if (isFunction(expression)) {
           const result = q.filter(expression).sort(sort).skip(skip).limit(limit).get();
-          return queryBuilder(result, publisher, { selector, query: { expression, options: { sort, limit, skip } } });
+          return queryBuilder(result, publisher, { id, selector, single, query: { expression, options: { sort, limit, skip, single } } });
         }
       }
       return this;
     },
-    result(options = {}) {
-      if (options.single && isArray(data) && data.length > 0) {
-        return data[0];
-      }
-      return data;
-    },
+    result,
     track(configurer) {
-      let queryResultTracker = {
+      const queryResultTracker = {
         selector,
         cached: data,
         query,
         results: new BehaviorSubject(),
-        snapshot() {
+        reload() {
+          publisher.refresh();
+        },
+        snapshot(options = {}) {
+          log.debug("computing query result snapshot", this.cached);
           let snapshot = null;
 
           if (!this.cached) return;
@@ -60,13 +102,16 @@ export function queryBuilder(data, publisher, { selector, query } = {}) {
             snapshot = new Query(snapshot || this.cached).find(this.query.expression, this.query.options).get();
           }
 
-          return snapshot || this.cached;
+          log.debug("producing snapshot result", snapshot, this.cached);
+          return result(options, snapshot || this.cached);
         },
       };
 
-      const stream = publisher.subscribe(data => {
-        queryResultTracker.cached = data;
-        const result = queryResultTracker.snapshot();
+      const stream = publisher.subscribe(newState => {
+        log.debug("updating our cached data", newState);
+        queryResultTracker.cached = newState.data;
+        const result = queryResultTracker.snapshot({ single });
+        log.debug("emitting a new query result", JSON.stringify(result, 2, 2));
         queryResultTracker.results.next(result);
       });
 

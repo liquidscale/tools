@@ -1,28 +1,34 @@
 import lodash from "lodash";
 import Promise from "bluebird";
-import shortid from "shortid-36";
 
-const { isFunction, reduce } = lodash;
-
-const queryTrackers = {};
+const { isFunction, reduce, forEach, isUndefined } = lodash;
 
 export default async function (scope, runtime, initialState, cstor) {
+  const log = runtime.logger.child({ internal: true, module: "scope-spi", scope: scope.key });
+
   if (!scope.stereotype) {
     scope.stereotype = "scope";
   }
 
+  if (isUndefined(scope.autoCreate)) {
+    scope.autoCreate = true;
+  }
+
   // Check if we have a dynamic scope
   const dynamic = scope.key.indexOf("${") !== -1;
+  const mountpoints = {};
+  let publications = {};
 
   if (!scope.store && !dynamic) {
-    console.log("initializing store for scope".gray, scope);
+    log.trace("initializing store for scope".gray, scope);
     scope.store = await runtime.createStore("memory", scope.key, { initialState });
   }
 
   const _api = {
     key: scope.key,
     stereotype: scope.steteotype || "scope",
-    helpers: Object.assign(scope.helpers || {}, { idGen: () => shortid.generate() }),
+    context: scope.context || {},
+    helpers: Object.assign(scope.helpers || {}, { idGen: () => runtime.idGen() }),
     errors: runtime.errors,
     config: runtime.wrapConfig(scope.config),
     schema: runtime.wrapSchema(scope.schema),
@@ -30,6 +36,9 @@ export default async function (scope, runtime, initialState, cstor) {
     finalizers: scope.finalizers || [],
     constraints: scope.constraints || [],
     store: scope.store,
+    getPublication(key = "default") {
+      return publications[key];
+    },
     async applyConfig(cfg) {
       scope.config = cfg;
       // push config to store
@@ -38,7 +47,13 @@ export default async function (scope, runtime, initialState, cstor) {
       }
     },
     subscribe(pubKey, subscriptionSpec) {
-      return runtime.wrapSubscription(this, publications[pubKey], subscriptionSpec);
+      log.debug("create-subscription: publication=%s, spec=", pubKey, subscriptionSpec);
+      const targetPub = publications[pubKey];
+      if (targetPub) {
+        return runtime.wrapSubscription(this, targetPub, subscriptionSpec);
+      } else {
+        log.warn("trying to subscription to an unknown publication. skipping...", pubKey);
+      }
     },
     async queryInContext(selector, expression, options, context) {
       try {
@@ -80,42 +95,6 @@ export default async function (scope, runtime, initialState, cstor) {
         return [null, err];
       }
     },
-    waitForQueries(pattern, { secure = true } = {}) {
-      return runtime.queries.subscribe(pattern, async query => {
-        if (secure && !query.context.actor) {
-          return query.channel.error({ message: "unauthorized", code: 401 });
-        }
-
-        try {
-          if (query.op === "open") {
-            // create subscription on this scope with the provided context and selector
-            const [queryTracker, error] = await this.queryInContext(query.selector, query.expression, query.options, query.context);
-            if (queryTracker) {
-              // register subscription (query id, subscription)
-              queryTrackers[query.id] = { queryTracker, subscription: queryTracker.results.subscribe(result => query.channel.emit(result)) };
-            } else {
-              throw error;
-            }
-          } else if (query.op === "snapshot") {
-            console.log("get query snapshot");
-
-            const queryTracker = this.queryInContext(query.selector, query.expression, query.options, query.context);
-            query.channel.emit(queryTracker.snapshot());
-            queryTracker.complete();
-          } else if (query.op === "close") {
-            console.log("closing query", query.id);
-            const { queryTracker, subscription } = queryTrackers[query.id];
-            if (subscription) {
-              subscription.unsubscribe();
-              queryTracker.complete();
-            }
-          }
-        } catch (err) {
-          console.error(err);
-          query.channel.error(err);
-        }
-      });
-    },
   };
 
   const defaultSpec = {
@@ -133,8 +112,8 @@ export default async function (scope, runtime, initialState, cstor) {
     },
   };
 
-  let publications = {};
   if (!dynamic) {
+    log.trace("initializing publications for scope %s", scope.key);
     publications = reduce(
       scope.publications || {},
       (pubs, pub) => {
@@ -153,6 +132,7 @@ export default async function (scope, runtime, initialState, cstor) {
    */
   const _platformApi = {
     parent() {
+      //TODO: Mount parent subscription reference
       return { systemSubscription: "to-do" };
     },
     async spawn(scopeKey, initialState, { cache = true } = {}) {
@@ -172,15 +152,14 @@ export default async function (scope, runtime, initialState, cstor) {
               await Promise.all(dynScope.initializers.map(async initializer => initializer(draft, context)));
               state.commit(draft);
             } catch (err) {
-              console.log("unable to initialize system %s".red, dynScope.key, err);
+              log.error("unable to initialize system %s".red, dynScope.key, err);
               state.rollback(draft);
             }
           } else {
-            console.log("No initializers to run for scope", dynScope.key);
+            log.debug("No initializers to run for scope", dynScope.key);
           }
 
-          dynScope.waitForQueries(dynScope.key);
-          console.log("scope %s successfully loaded".green, dynScope.key);
+          log.debug("scope %s successfully loaded".green, dynScope.key);
           return dynScope;
         }
       );
@@ -189,7 +168,7 @@ export default async function (scope, runtime, initialState, cstor) {
       const childSub = childScope.subscribe("default", {
         cache: {
           data: initialState,
-          excludes: ["messages"],
+          excludes: ["messages"], //FIXME: use incoming cache params
         },
       });
 
@@ -198,10 +177,38 @@ export default async function (scope, runtime, initialState, cstor) {
 
       return childSub.asRef();
     },
+    subscribe(pubKey, subscriptionSpec) {
+      log.debug("platform-api: subscribe", pubKey, subscriptionSpec);
+      if (pubKey) {
+        return _api.subscribe(pubKey, subscriptionSpec);
+      } else {
+        log.warn("empty subscription provided by client code. skipping.");
+      }
+    },
+    mount(target, { mountpoint } = {}) {
+      if (target) {
+        target.$mountId = runtime.idGen();
+        mountpoints[target.$mountId] = target.subscribe(function mountpointObserver(data) {
+          log.debug("mounted target %s(%s) has changed. We need to refresh all publications: %s. change =", mountpoint, target.$mountId, Object.keys(publications), data);
+          forEach(publications, pub => pub.refresh(mountpoint, data));
+        });
+        return target;
+      }
+    },
+    unmount(target) {
+      if (target) {
+        const subscription = mountpoints[target.$mountId];
+        if (subscription) {
+          subscription.unsubscribe();
+        } else {
+          log.info("unmounted target", target);
+        }
+      }
+    },
   };
 
   _api.using = function (pubKey, fn) {
-    console.log("executing code within publication context", pubKey);
+    log.info("executing code within publication context", pubKey);
     const pub = publications[pubKey];
     return pub.$.subscribe(state =>
       fn(state, {
@@ -214,9 +221,12 @@ export default async function (scope, runtime, initialState, cstor) {
       })
     );
   };
+  _api.getPlatformApi = function () {
+    return _platformApi;
+  };
 
   if (dynamic) {
-    console.log("registering a dynamic scope template", _api.key);
+    log.info("registering a dynamic scope template", _api.key);
     _api.dynamicScope = async function (scopeSpec, data, dynamiCstor) {
       scopeSpec = scopeSpec || {};
 
@@ -232,6 +242,31 @@ export default async function (scope, runtime, initialState, cstor) {
       Object.assign(scopeSpec.helpers || {}, scope.helpers || {});
       return runtime.wrapScope({ ...scope, ...scopeSpec, store: null }, data, dynamiCstor || cstor);
     };
+
+    const scopePattern = runtime.dynamicPattern(scope.key);
+
+    // Let's listen for incoming queries or action requests and forward
+    runtime.queries.subscribe(scopePattern, async query => {
+      // resolve dynamic scope
+      let dynScope = runtime.findComponent({ stereotype: "scope", key: query.scope });
+      if (!dynScope && scope.autoCreate) {
+        dynScope = await _api.dynamicScope({ key: query.scope, context: query.context }, {}, cstor);
+        runtime.events.next({ key: "component:installed:new", component: dynScope });
+      }
+
+      if (dynScope) {
+        // send query to dynscope through indicated publication
+        const targetPub = dynScope.getPublication(query.target);
+        if (targetPub) {
+          targetPub.executeQuery(query);
+        } else {
+          query.channel.error({ message: "unknown publication", close: true });
+        }
+      } else {
+        query.channel.error({ message: "invalid scope", close: true });
+      }
+    });
+
     return _api;
   } else if (isFunction(cstor)) {
     return await cstor(_api);

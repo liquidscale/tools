@@ -1,18 +1,19 @@
-import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet } from "immer";
+import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet, setAutoFreeze } from "immer";
 import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
 import Query from "./mongo-query.js";
-import shortid from "shortid-36";
-import jp from "jsonpath";
 
 const { last, get, findIndex } = lodash;
 
 enablePatches();
 enableMapSet();
+setAutoFreeze(false);
 
-export default function (key, config) {
-  console.log("initializing memory store %s".gray, key, config);
+export default function (key, config, runtime) {
+  const log = runtime.logger.child({ internal: true, module: "memory-store", key });
+
+  log.trace("initializing memory store %s".gray, key, config);
   const snapshotTreshold = get(config, "snapshotTreshold") || 50;
 
   const _state = {
@@ -20,6 +21,14 @@ export default function (key, config) {
     snapshots: [],
     publications: [],
     subscriptions: [],
+  };
+
+  const publisher = new BehaviorSubject();
+  publisher.refresh = function () {
+    const state = this.getValue();
+    if (state) {
+      state.rebuild({ forcePublish: true });
+    }
   };
 
   async function heightSinceLastSnapshot() {
@@ -34,16 +43,14 @@ export default function (key, config) {
   async function triggerSnapshot(height, data, { force = false } = {}) {
     const needSnapshot = force || (await heightSinceLastSnapshot()) >= snapshotTreshold;
     if (needSnapshot) {
-      console.log("producing a snapshot for store %s at height %d".cyan, key, height);
+      log.debug("producing a snapshot for store %s at height %d".cyan, key, height);
       _state.snapshots.push({ height, data, ts: new Date().getTime() });
     }
   }
 
-  const publisher = new BehaviorSubject();
-
-  const stateFactory = function ({ initialState, height, locale = "en", ...context } = {}, constraints = []) {
+  const stateFactory = function ({ initialState, height, locale = "en", ...context } = {}) {
     const state = {
-      id: shortid.generate(),
+      id: runtime.idGen(),
       locale,
       draft() {
         return createDraft(state.data);
@@ -57,16 +64,17 @@ export default function (key, config) {
               ts: new Date().getTime(),
               locale,
               patches,
+              actor: context.actor,
             };
             _state.frames.push(newFrame);
           });
 
-          publisher.next(state.data);
+          publisher.next(state);
 
           // check if we need to create a snapshot
           triggerSnapshot(state.height, state.data);
         } catch (err) {
-          console.error("commit error", state.id, err);
+          log.error("commit error", state.id, err);
         }
       },
       rollback() {
@@ -79,39 +87,42 @@ export default function (key, config) {
         }
         return qb;
       },
+      rebuild({ forcePublish = false } = {}) {
+        const snapshot = new Query(_state.snapshots)
+          .findOne({ height: { $lte: height || 0 } })
+          .sort({ height: -1 })
+          .get();
+
+        const frameQuery = {};
+        if (snapshot.length > 0) {
+          frameQuery.height = { $gt: snapshot[0].height };
+        } else {
+          frameQuery.height = { $gte: height || 0 };
+        }
+
+        if (locale) {
+          frameQuery.locale = locale;
+        }
+
+        const data = snapshot.length > 0 ? snapshot[0].data : initialState || {};
+
+        // retrieve all frames after our computed height
+        const frames = new Query(_state.frames).find(frameQuery).sort({ height: 1 }).get();
+        if (frames.length > 0) {
+          this.data = frames.reduce((state, frame) => applyPatches(state, frame.patches), data);
+          this.height = last(frames).height;
+        } else {
+          this.data = data;
+          this.height = snapshot.length > 0 ? snapshot[0].height : height || 0;
+        }
+
+        if (!publisher.getValue() || forcePublish) {
+          publisher.next(state);
+        }
+      },
     };
 
-    const snapshot = new Query(_state.snapshots)
-      .findOne({ height: { $lte: height || 0 } })
-      .sort({ height: -1 })
-      .get();
-
-    const frameQuery = {};
-    if (snapshot.length > 0) {
-      frameQuery.height = { $gt: snapshot[0].height };
-    } else {
-      frameQuery.height = { $gte: height || 0 };
-    }
-
-    if (locale) {
-      frameQuery.locale = locale;
-    }
-
-    const data = snapshot.length > 0 ? snapshot[0].data : initialState || {};
-
-    // retrieve all frames after our computed height
-    const frames = new Query(_state.frames).find(frameQuery).sort({ height: 1 }).get();
-    if (frames.length > 0) {
-      state.data = frames.reduce((state, frame) => applyPatches(state, frame.patches), data);
-      state.height = last(frames).height;
-    } else {
-      state.data = data;
-      state.height = snapshot.length > 0 ? snapshot[0].height : height || 0;
-    }
-
-    if (!publisher.getValue()) {
-      publisher.next(state.data);
-    }
+    state.rebuild();
 
     return state;
   };
@@ -121,7 +132,7 @@ export default function (key, config) {
     type: "memory",
     stereotype: "store",
     async initState(initialState) {
-      console.log("initializing store %s state", key, initialState);
+      log.trace("initializing store %s state", key, initialState);
 
       // create an initial snapshot
       if (initialState) {
@@ -129,14 +140,14 @@ export default function (key, config) {
       }
       return stateFactory({ height: 0 });
     },
-    async loadState(context, constraints = []) {
-      return stateFactory(context, constraints);
+    async loadState(context) {
+      return stateFactory(context);
     },
     async injectSnapshot(snapshot) {
       if (!snapshot.ts) {
         snapshot.ts = new Date().getTime();
       }
-      console.log("injecting snapshot", snapshot);
+      log.trace("injecting snapshot", snapshot);
       const targetIdx = findIndex(_state.snapshots, s => s.height === snapshot.height);
       if (targetIdx !== -1) {
         _state.snapshots[targetIdx] = snapshot;

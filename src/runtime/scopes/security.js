@@ -2,6 +2,8 @@ import signinAction from "./security/signin.action.js";
 import JWT from "jsonwebtoken";
 
 export default async function (runtime) {
+  const log = runtime.logger.child({ scope: "security" });
+
   runtime.config.keyChanged("scopes.security").subscribe(async cfg => {
     const helpers = {
       async verifyPassword(password, encrypted) {
@@ -24,7 +26,7 @@ export default async function (runtime) {
     let eventKey = "component:installed:";
     let securityScope = await runtime.registry.findComponent({ stereotype: "scope", key: "security" });
     if (!securityScope) {
-      console.log("installing security scope");
+      log.debug("installing security scope");
       eventKey += "new";
       securityScope = await runtime.wrapScope({
         key: "security",
@@ -33,12 +35,10 @@ export default async function (runtime) {
       });
       await securityScope.applyConfig(cfg);
 
-      runtime.queries.subscribe(securityScope.key, query => {});
-
       // register our associated actions
       signinAction(runtime);
     } else {
-      console.log("updating security scope");
+      log.debug("updating security scope");
       eventKey += "updated";
       await securityScope.applyConfig(cfg);
     }
