@@ -1,4 +1,4 @@
-#!/usr/bin/env node --experimental-vm-modules
+#!/usr/bin/env node --experimental-vm-modules --trace-warnings
 
 /*
     MIT License

@@ -82,7 +82,12 @@ export default function (runtime) {
             resolve(target);
           }
         }, options.interval || 100);
-      }).timeout(options.timeout || 2000);
+      })
+        .timeout(options.timeout || 2000)
+        .catch(err => {
+          log.error("unable to resolve ", query);
+          return null;
+        });
     },
     findComponents(query, options) {
       return components.filter(queryHandler(query, options));

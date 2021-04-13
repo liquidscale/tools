@@ -1,5 +1,5 @@
 import { BehaviorSubject } from "rxjs";
-import { queryBuilder } from "./stores/query-builder.js";
+import { queryBuilder } from "../stores/query-builder.js";
 import jp from "jsonpath";
 
 export default function (spec, scope, runtime) {

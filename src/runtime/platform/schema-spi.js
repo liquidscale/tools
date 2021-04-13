@@ -60,12 +60,17 @@ export default function (schemaSpec, runtime) {
       }
     },
     async normalize(data) {
-      const validate = await ajv.compileAsync(await spec);
-      const valid = validate(data);
-      if (valid) {
-        return [data, null];
-      } else {
-        return [null, validate.errors];
+      try {
+        const schemaSpec = await spec;
+        const validate = await ajv.compileAsync(schemaSpec);
+        const valid = validate(data);
+        if (valid) {
+          return [data, null];
+        } else {
+          return [null, validate.errors];
+        }
+      } catch (err) {
+        return [null, [err]];
       }
     },
   };

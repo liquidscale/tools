@@ -16,13 +16,14 @@ export default function signinAction(runtime) {
   runtime.registry.addComponent(action);
 
   /**
-   * Builtin authenticateion action. The implementation is coupled with security scope features like helpers
+   * Builtin authenticate action. The implementation is coupled with security scope features like helpers
    */
   runtime.actions.subscribe(action.key, async function (req) {
     // validate action payload
-    const [payload, errors] = action.schema.normalize(req.data);
+    const [payload, errors] = await action.schema.normalize(req.data);
     if (errors) {
-      return req.channel.error({ message: "validation error", code: 100, errors });
+      req.channel.error({ message: "validation error", code: 100, errors });
+      return;
     }
 
     // bind to our target scope (if specified)
