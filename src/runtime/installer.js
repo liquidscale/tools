@@ -7,6 +7,7 @@ import guardSpi from "./platform/guard-spi.js";
 import initializerSpi from "./platform/initializer-spi.js";
 import finalizerSpi from "./platform/finalizer-spi.js";
 import ruleSpi from "./platform/rule-spi.js";
+import feedSpi from "./platform/feed-spi.js";
 
 export default function (runtime) {
   const log = runtime.logger.child({ service: "installer" });
@@ -39,6 +40,9 @@ export default function (runtime) {
           break;
         case "rule":
           comp = ruleSpi(component, runtime);
+          break;
+        case "feed":
+          comp = feedSpi(component, runtime());
           break;
         case "system":
           comp = await component.impl.getComponent();

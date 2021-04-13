@@ -1,8 +1,8 @@
 import { createLogger } from "bunyan";
 import bformat from "bunyan-format";
 
-const formatOut = bformat({ outputMode: "short" });
-export const logger = createLogger({ name: "app", stream: formatOut, level: "debug" });
+//const formatOut = bformat({ outputMode: "short" });
+export const logger = createLogger({ name: "lqs", level: "debug" });
 
 global.console = {
   log: logger.debug.bind(logger),

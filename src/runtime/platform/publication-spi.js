@@ -1,5 +1,4 @@
 import { BehaviorSubject } from "rxjs";
-import { queryBuilder } from "../stores/query-builder.js";
 import jp from "jsonpath";
 
 export default function (spec, scope, runtime) {
@@ -29,7 +28,7 @@ export default function (spec, scope, runtime) {
         querySubscription = _data.subscribe(data => {
           if (data) {
             log.trace("refreshing query %s with new data", query.id, JSON.stringify(data, 2, 2));
-            const qb = queryBuilder(data);
+            const qb = runtime.buildQuery(data);
             const result = qb.selector(query.selector).query(query.expression, query.options).result({ single: query.options.single });
             log.trace("updated query result", JSON.stringify(result, 2, 2));
             query.channel.emit(result);
@@ -40,7 +39,7 @@ export default function (spec, scope, runtime) {
         log.debug("get query snapshot on scope %s using pub %s", scope.key, spec.key, query);
         const data = _data.getValue();
         if (data) {
-          const qb = queryBuilder(data, null);
+          const qb = runtime.buildQuery(data, null);
           const result = qb.selector(query.selector).query(query.expression, query.options).result({ single: query.options.single });
           query.channel.emit(result);
         }

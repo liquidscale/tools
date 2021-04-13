@@ -34,10 +34,41 @@ import subscriptionSpi from "./platform/subscription-spi.js";
 import jsexpr from "jsexpr";
 import { Collection } from "./platform/collection.js";
 import { hri } from "human-readable-ids";
+import Promise from "bluebird";
+import lodash from "lodash";
+import { queryBuilder } from "./query-builder.js";
+
+global.Promise = Promise;
+const { isFunction } = lodash;
+
+function bootstrap(spi) {
+  // connect our component handlers
+  loader(spi);
+  compiler(spi);
+  installer(spi);
+  uninstaller(spi);
+
+  gateways(spi);
+  transports(spi);
+  stores(spi);
+
+  // create standard scopes
+  world(spi);
+  organization(spi);
+  security(spi);
+  cluster(spi);
+  library(spi);
+  user(spi);
+  device(spi);
+
+  // load all system scopes, which will trigger all sub-components initialization like timers, triggers, effects, etc.
+  systems(spi);
+  spi.events.next({ key: "ready" });
+}
 
 export function runtimeFactory(options = {}) {
   const log = logger.child({ module: "runtime" });
-  console.log("instantiating runtime ".green);
+  log.debug("instantiating runtime ".green, options);
 
   // This is the internal api of the runtime instance.
   const events = new Subject();
@@ -77,6 +108,9 @@ export function runtimeFactory(options = {}) {
       },
     },
     config: config(events, options),
+    whenReady(fn) {
+      return events.pipe(filter(e => e.key === "ready")).subscribe(fn);
+    },
     new(code) {
       const script = new vm.Script(code);
       try {
@@ -118,8 +152,17 @@ export function runtimeFactory(options = {}) {
         }
         return store;
       } else {
-        return null;
+        log.trace("looking for store %s factory", type);
+        const storeFactory = spi.registry.findComponent({ stereotype: "store", key: type });
+        if (storeFactory) {
+          return storeFactory.factory(key, config);
+        } else {
+          return null;
+        }
       }
+    },
+    buildQuery(...args) {
+      return queryBuilder(...args);
     },
     wrapSchema(spec) {
       return schemaSpi(spec, this);
@@ -128,7 +171,6 @@ export function runtimeFactory(options = {}) {
       return publicationSpi(spec, scope, this);
     },
     wrapSubscription(scope, pub, spec) {
-      log.debug("creating spi subscription", scope.key, pub, spec);
       return subscriptionSpi(scope, pub, spec, this);
     },
     wrapAction(comp) {
@@ -160,28 +202,26 @@ export function runtimeFactory(options = {}) {
   spi.registry = registry(spi);
   spi.health = health(spi);
 
-  if (!options.test) {
-    // connect our component handlers
-    loader(spi);
-    compiler(spi);
-    installer(spi);
-    uninstaller(spi);
-
-    gateways(spi);
-    transports(spi);
-    stores(spi);
-
-    // create standard scopes
-    world(spi);
-    organization(spi);
-    security(spi);
-    cluster(spi);
-    library(spi);
-    user(spi);
-    device(spi);
-
-    // load all system scopes, which will trigger all sub-components initialization like timers, triggers, effects, etc.
-    systems(spi);
+  // If we have a bootstrap script, let's use it
+  if (options.bootstrap) {
+    (async function () {
+      const bootstrapModule = await import(options.bootstrap);
+      await Promise.map(bootstrapModule.default.plugins || [], plugin => {
+        if (isFunction(plugin)) {
+          return plugin(spi);
+        } else if (Array.isArray(plugin)) {
+          return plugin[0](spi, plugin[1]);
+        }
+      });
+      console.log("all plugins are connected to the runtime");
+      if (!options.test) {
+        bootstrap(spi);
+      }
+    })();
+  } else {
+    if (!options.test) {
+      bootstrap(spi);
+    }
   }
 
   // Return the public api for our runtime

@@ -22,12 +22,45 @@
     SOFTWARE.
 */
 import { runtimeFactory } from "../runtime/index.js";
+import Yaml from "js-yaml";
+import fs from "fs-extra";
+import lodash from "lodash";
+import Path from "path";
+
+const { omit } = lodash;
+
+async function loadBundleConfig(defaultConfig = {}) {
+  if (fs.existsSync("package.json")) {
+    const packageInfo = JSON.parse(fs.readFileSync("package.json", "utf8"));
+    defaultConfig.name = packageInfo.name;
+    defaultConfig.version = packageInfo.version;
+    defaultConfig.description = packageInfo.description;
+
+    if (packageInfo.main) {
+      defaultConfig.bootstrap = Path.resolve(packageInfo.main);
+    }
+    if (packageInfo.lqs) {
+      return Object.assign(defaultConfig, packageInfo.lqs);
+    }
+  } else if (fs.existsSync("lqs.yaml")) {
+    return Object.assign(defaultConfig, Yaml.load(fs.readFileSync("lqs.yaml", "utf8")));
+  } else {
+    return defaultConfig;
+  }
+}
 
 export default function () {
   return async function (args) {
-    console.log("launching virtual cluster...".cyan);
-    runtimeFactory()
-      .bundle("filesystem", { root: process.cwd(), name: args.name, version: args.version })
+    if (process.env.NODE_ENV !== "production") {
+      console.log("launching virtual cluster in development mode...".cyan);
+    }
+
+    // Retrieve LQS bundle configuration
+    const bundleConfig = await loadBundleConfig({ root: process.cwd(), name: args.name, version: args.version });
+    bundleConfig.root = Path.resolve(bundleConfig.root);
+
+    runtimeFactory(bundleConfig)
+      .bundle("filesystem", omit(bundleConfig, "bootstrap", "name", "version", "description"))
       .deploy({ watch: true })
       .subscribe(
         bundle => {

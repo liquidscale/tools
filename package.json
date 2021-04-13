@@ -1,6 +1,6 @@
 {
   "name": "@liquidscale/tools",
-  "version": "0.1.0",
+  "version": "0.1.1-0",
   "type": "module",
   "repository": {
     "type": "git",
@@ -39,12 +39,9 @@
     "mime": "^2.5.2",
     "minimist": "^1.2.5",
     "object-hash": "^2.1.1",
-    "pouchdb-adapter-memory": "^7.2.2",
     "replaceall": "^0.1.6",
-    "rxdb": "^9.15.0",
     "rxjs": "^6.6.6",
-    "shortid-36": "^0.1.2",
-    "vm2": "^3.9.2"
+    "shortid-36": "^0.1.2"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/"

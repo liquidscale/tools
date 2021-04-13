@@ -1,8 +1,7 @@
 import { createDraft, finishDraft, enablePatches, applyPatches, enableMapSet, setAutoFreeze } from "immer";
-import { queryBuilder } from "./query-builder.js";
 import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
-import Query from "./mongo-query.js";
+import Query from "../mongo-query.js";
 
 const { last, get, findIndex } = lodash;
 
@@ -81,7 +80,7 @@ export default function (key, config, runtime) {
         // noop
       },
       selector(expr) {
-        const qb = queryBuilder(state.data, publisher);
+        const qb = runtime.buildQuery(state.data, publisher);
         if (expr) {
           return qb.selector(expr);
         }

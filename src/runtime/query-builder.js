@@ -2,7 +2,7 @@ import jp from "jsonpath";
 import Query from "./mongo-query.js";
 import lodash from "lodash";
 import { BehaviorSubject } from "rxjs";
-import { logger } from "../logger.js";
+import { logger } from "./logger.js";
 import { hri } from "human-readable-ids";
 
 const { isFunction, isArray, reduce, isObject } = lodash;

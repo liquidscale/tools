@@ -3,6 +3,8 @@ import lodash from "lodash";
 const { isString } = lodash;
 
 export default function (runtime) {
+  const log = runtime.logger.child({ module: "sandbox" });
+
   return {
     provide: function (fn) {
       const safeRT = {
@@ -33,8 +35,10 @@ export default function (runtime) {
             finalizer(fn) {
               _system.finalizers.push(fn);
             },
-            store(key) {
+            store(key, opts = {}) {
               _system.store = key;
+              _system.storeOpts = opts || {};
+              _system.storeOpts.prefix = _system.storeOpts.prefix || "system";
             },
             constraint(spec, fn) {
               _system.constraints.push({ spec, fn });
@@ -44,14 +48,15 @@ export default function (runtime) {
             },
             async getComponent() {
               return runtime.wrapScope(_system, {}, async scope => {
-                console.log("initializing wrapped scope".cyan, scope.key);
+                log.debug("initializing wrapped scope".cyan, scope.key);
                 if (!_system.store) {
-                  console.log("no configured scope, let's create a simple memory store");
+                  log.debug("no configured scope, let's create a simple memory store");
                   scope.store = runtime.createStore("memory", _system.key);
                 }
 
                 if (isString(_system.store)) {
-                  scope.store = await runtime.resolve({ stereotype: "store", key: _system.store });
+                  log.debug("creating store", _system.store, scope.key, _system.storeOpts);
+                  scope.store = await runtime.createStore(_system.store, scope.key, _system.storeOpts || {});
                 }
 
                 // Run all initializers to build initial state
@@ -63,7 +68,7 @@ export default function (runtime) {
                     await Promise.all(_system.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
                   } catch (err) {
-                    console.log("unable to initialize system %s".red, _system.key, err);
+                    log.debug("unable to initialize system %s".red, _system.key, err);
                     state.rollback(draft);
                   }
                 }
@@ -72,7 +77,7 @@ export default function (runtime) {
                 scope.getStatus = () => _system.status;
 
                 _system.status = "active";
-                console.log("system %s successfully started".green, scope.key);
+                log.debug("system %s successfully started".green, scope.key);
                 return scope;
               });
             },
@@ -105,36 +110,40 @@ export default function (runtime) {
             publication(key, spec) {
               _scope.publications[key] = { ...spec, key };
             },
+            store(key, opts = {}) {
+              _scope.store = key;
+              _scope.storeOpts = opts || {};
+              _scope.storeOpts.prefix = _scope.storeOpts.prefix || _scope.key;
+            },
             async getComponent() {
               return runtime.wrapScope(_scope, {}, async scope => {
-                console.log("initializing scope".cyan, scope.key);
+                log.debug("initializing scope".cyan, scope.key);
                 if (!_scope.store) {
-                  console.log("no configured store, let's create a simple memory store");
+                  log.debug("no configured store, let's create a simple memory store");
                   scope.store = runtime.createStore("memory", scope.key);
                 }
 
                 if (isString(_scope.store)) {
-                  console.log("resolving store %s", _scope.store);
-                  scope.store = await runtime.resolve({ stereotype: "store", key: _scope.store });
-                  console.log("scope %s store was successfully resolved".green, scope.store);
+                  log.debug("creating store", _scope.store, scope.key, _scope.storeOpts);
+                  scope.store = await runtime.createStore(_scope.store, scope.key, _scope.storeOpts || {});
                 }
 
                 // Run all initializers to build initial state
                 if (_scope.initializers.length > 0) {
                   const state = await scope.store.loadState();
-                  console.log("initializing state for %s:%s", scope.stereotype, scope.key, state);
+                  log.debug("initializing state for %s:%s", scope.stereotype, scope.key, state);
                   const draft = state.draft();
                   try {
                     const context = { scope: scope.getPlatformApi(), console, ...runtime.platform, config: scope.config, schema: scope.schema };
                     await Promise.all(_scope.initializers.map(async initializer => initializer(draft, context)));
                     state.commit(draft);
                   } catch (err) {
-                    console.log("unable to initialize system %s".red, scope.key, err);
+                    log.debug("unable to initialize system %s".red, scope.key, err);
                     state.rollback(draft);
                   }
                 }
 
-                console.log("scope %s successfully loaded".green, scope.key);
+                log.debug("scope %s successfully loaded".green, scope.key);
                 return scope;
               });
             },
